@@ -16,4 +16,4 @@ def ask(payload: AskIn, db: Session = Depends(get_current_db)) -> dict:
     keywords to the already-computed statistics — no LLM, no raw messages
     involved unless the user explicitly wires up an external one later.
     """
-    return ask_engine.answer(db, payload.question)
+    return ask_engine.answer(db, payload.question, lang=payload.lang)

@@ -20,6 +20,7 @@ class SettingsIn(BaseModel):
     grouping_window_minutes: int | None = Field(default=None, ge=1, le=120)
     session_gap_hours: int | None = Field(default=None, ge=1, le=72)
     min_sample_size: int | None = Field(default=None, ge=1, le=1000)
+    language: str | None = Field(default=None, pattern="^(en|uz)$")
 
 
 class AppConfigOut(BaseModel):
@@ -32,9 +33,11 @@ class AppConfigOut(BaseModel):
     grouping_window_minutes: int
     session_gap_hours: int
     min_sample_size: int
+    language: str
 
     model_config = {"from_attributes": True}
 
 
 class AskIn(BaseModel):
     question: str
+    lang: str = Field(default="en", pattern="^(en|uz)$")

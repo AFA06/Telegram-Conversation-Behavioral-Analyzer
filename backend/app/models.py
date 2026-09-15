@@ -53,6 +53,10 @@ class AppConfig(Base):
     session_gap_hours: Mapped[int] = mapped_column(Integer, default=6)
     min_sample_size: Mapped[int] = mapped_column(Integer, default=10)
 
+    # Bot UI language: "en" or "uz". Auto-detected from the user's Telegram
+    # client language on first /start, changeable via /language.
+    language: Mapped[str] = mapped_column(String, default="en")
+
     updated_at: Mapped[dt.datetime] = mapped_column(default=_utcnow, onupdate=_utcnow)
 
 

@@ -38,6 +38,8 @@ def update_settings(payload: SettingsIn, db: Session = Depends(get_current_db)) 
         cfg.session_gap_hours = payload.session_gap_hours
     if payload.min_sample_size is not None:
         cfg.min_sample_size = payload.min_sample_size
+    if payload.language is not None:
+        cfg.language = payload.language
     db.commit()
     db.refresh(cfg)
     return AppConfigOut.model_validate(cfg)

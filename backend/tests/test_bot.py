@@ -33,6 +33,7 @@ def isolated_tenants(tmp_path, monkeypatch):
 def _make_update(telegram_user_id: int, file_path: Path):
     update = MagicMock()
     update.effective_user.id = telegram_user_id
+    update.effective_user.language_code = "en"  # MagicMock defaults are truthy, so this must be explicit
     update.message.document.file_id = "fake-file-id"
     update.message.document.file_size = file_path.stat().st_size
 
