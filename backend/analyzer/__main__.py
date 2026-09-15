@@ -2,11 +2,16 @@
 
 Usage (run from the ``backend/`` directory, with the venv active):
 
-    python -m analyzer import path/to/result.json --me-id 111 --me-name Me \\
-        --other-id 222 --other-name Them --timezone Asia/Tashkent
+    python -m analyzer import path/to/result.json
+    python -m analyzer participants   # see the exact sender ids found in the export
+    python -m analyzer configure --me-id user111 --me-name Me --other-id user222 --other-name Them
     python -m analyzer analyze
     python -m analyzer stats
     python -m analyzer server
+
+Tip: import first without --me-id/--other-id, run 'participants' to see the
+exact id strings Telegram used in your export (they're usually prefixed,
+e.g. 'user938613594', not bare '938613594'), then 'configure' with those.
 """
 from __future__ import annotations
 
@@ -46,9 +51,25 @@ def cmd_import(args: argparse.Namespace) -> None:
             print("Reasons:")
             for reason, count in sorted(report.skipped_reasons.items(), key=lambda kv: -kv[1]):
                 print(f"  - {reason}: {count}")
+
+        detected = config_service.detect_participants(db)
+        print("\nSenders found in this export (use these exact ids for --me-id/--other-id):")
+        for d in detected:
+            print(f"  {d['sender_id']:<20} {d['sender_name'] or '(no name)':<20} {d['message_count']} messages")
+
         if not cfg.me_user_id or not cfg.other_user_id:
-            print("\nNote: participants are not configured yet. Re-run with --me-id/--other-id,")
-            print("or use the Settings page once the dashboard is running.")
+            print("\nParticipants are not configured yet. Re-run with --me-id/--other-id using")
+            print("one of the ids listed above, or use the Settings page once the dashboard is running.")
+        else:
+            me_matches = config_service.matched_message_count(db, cfg.me_user_id)
+            other_matches = config_service.matched_message_count(db, cfg.other_user_id)
+            if me_matches == 0 or other_matches == 0:
+                print(
+                    f"\nWarning: configured me-id ({cfg.me_user_id}) matched {me_matches} messages, "
+                    f"other-id ({cfg.other_user_id}) matched {other_matches} messages. "
+                    "Double-check against the senders listed above — Telegram exports usually "
+                    "prefix numeric ids, e.g. 'user938613594' rather than bare '938613594'."
+                )
     finally:
         db.close()
 
@@ -82,6 +103,21 @@ def cmd_configure(args: argparse.Namespace) -> None:
         print(f"  grouping window: {cfg.grouping_window_minutes} min")
         print(f"  session gap:     {cfg.session_gap_hours} h")
         print(f"  min sample size: {cfg.min_sample_size}")
+    finally:
+        db.close()
+
+
+def cmd_participants(args: argparse.Namespace) -> None:
+    init_db()
+    db = SessionLocal()
+    try:
+        detected = config_service.detect_participants(db)
+        if not detected:
+            print("No messages imported yet.")
+            return
+        print("Senders found in the imported export (use these exact ids for 'configure'/'import'):")
+        for d in detected:
+            print(f"  {d['sender_id']:<20} {d['sender_name'] or '(no name)':<20} {d['message_count']} messages")
     finally:
         db.close()
 
@@ -159,6 +195,9 @@ def build_parser() -> argparse.ArgumentParser:
     p_cfg.add_argument("--session-gap", type=int, help="Inactivity gap that starts a new session, in hours")
     p_cfg.add_argument("--min-sample", type=int, help="Minimum observations required before reporting a window")
     p_cfg.set_defaults(func=cmd_configure)
+
+    p_participants = sub.add_parser("participants", help="List sender ids found in the imported export")
+    p_participants.set_defaults(func=cmd_participants)
 
     p_analyze = sub.add_parser("analyze", help="Compute sessions, response times, and no-response bursts")
     p_analyze.set_defaults(func=cmd_analyze)

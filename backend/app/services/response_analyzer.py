@@ -103,6 +103,19 @@ def run_full_analysis(db: Session) -> dict:
     messages: list[Message] = db.query(Message).order_by(Message.timestamp_utc).all()
     roles: dict[int, str] = {m.id: role_for_sender(cfg, m.sender_id) for m in messages}
 
+    if messages and not any(r != "unknown" for r in roles.values()):
+        from app.services.config_service import detect_participants
+
+        detected = detect_participants(db, limit=5)
+        detected_str = "; ".join(f"{d['sender_name'] or '?'} ({d['sender_id']}): {d['message_count']} msgs" for d in detected)
+        raise ValueError(
+            "The configured 'me' and 'other' ids don't match any imported message senders "
+            "(0 messages matched). Telegram exports store sender ids in a prefixed form "
+            "(e.g. 'user938613594', not bare '938613594') — check GET /api/import/participants "
+            "or `python -m analyzer participants` for the exact ids found in your export. "
+            f"Detected senders: {detected_str or 'none'}"
+        )
+
     db.execute(delete(ResponseEvent))
     db.execute(delete(UnansweredBurst))
     db.execute(delete(ConversationSession))

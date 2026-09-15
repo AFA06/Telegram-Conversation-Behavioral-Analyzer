@@ -125,3 +125,30 @@ def test_data_quality_report_endpoint_via_import_response(client: TestClient):
     body = _import_sample(client)
     assert "skipped_reasons" in body
     assert body["skipped_reasons"].get("service_message_ignored") == 1
+
+
+def test_import_response_includes_detected_participants(client: TestClient):
+    body = _import_sample(client)
+    ids = {p["sender_id"] for p in body["detected_participants"]}
+    assert ids == {"user1000", "user2000"}
+
+
+def test_import_participants_endpoint(client: TestClient):
+    _import_sample(client)
+    data = client.get("/api/import/participants").json()
+    assert {p["sender_id"] for p in data} == {"user1000", "user2000"}
+
+
+def test_import_with_mismatched_participant_ids_reports_error_not_zeros(client: TestClient):
+    """Regression test for the silent-zero bug: configuring ids that don't
+    match any sender must surface a clear error, not a fake all-zero report.
+    """
+    client.put(
+        "/api/config/participants",
+        json={"me_user_id": "938613594", "me_display_name": "Me", "other_user_id": "6424173522", "other_display_name": "Jayrona"},
+    )
+    with FIXTURE.open("rb") as f:
+        resp = client.post("/api/import", files={"file": ("sample_export.json", f, "application/json")})
+    body = resp.json()
+    assert body["analysis"] is None
+    assert "don't match any imported message senders" in body["analysis_error"]

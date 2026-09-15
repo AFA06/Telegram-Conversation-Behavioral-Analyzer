@@ -17,6 +17,7 @@ const TIMEZONES = [
 
 export default function Settings() {
   const configQuery = useApi("/config");
+  const participantsQuery = useApi("/import/participants");
   const [form, setForm] = useState(null);
   const [file, setFile] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -27,6 +28,14 @@ export default function Settings() {
   }, [configQuery.data]);
 
   if (!form) return null;
+
+  const pickAs = (role, sender) => {
+    if (role === "me") {
+      setForm((f) => ({ ...f, me_user_id: sender.sender_id, me_display_name: sender.sender_name || f.me_display_name }));
+    } else {
+      setForm((f) => ({ ...f, other_user_id: sender.sender_id, other_display_name: sender.sender_name || f.other_display_name }));
+    }
+  };
 
   const update = (key, value) => setForm((f) => ({ ...f, [key]: value }));
 
@@ -74,11 +83,16 @@ export default function Settings() {
       const fd = new FormData();
       fd.append("file", file);
       const result = await api.post("/import", fd);
-      setMessage({
-        type: "ok",
-        text: `Imported ${result.valid_count} of ${result.imported_count} messages (${result.skipped_count} skipped).` +
-          (result.analysis ? ` Analysis complete: ${result.analysis.sessions} sessions, ${result.analysis.response_events} response events.` : " Configure participants and re-analyze."),
-      });
+      participantsQuery.reload();
+      let text = `Imported ${result.valid_count} of ${result.imported_count} messages (${result.skipped_count} skipped). `;
+      if (result.analysis) {
+        text += `Analysis complete: ${result.analysis.sessions} sessions, ${result.analysis.response_events} response events.`;
+      } else if (result.analysis_error) {
+        text += `Analysis could not run: ${result.analysis_error}`;
+      } else {
+        text += "Pick 'Me' and 'Other person' below from the detected senders, then save and re-analyze.";
+      }
+      setMessage({ type: result.analysis_error ? "err" : "ok", text });
     } catch (e) {
       setMessage({ type: "err", text: e.message });
     } finally {
@@ -126,7 +140,41 @@ export default function Settings() {
 
       <div style={{ height: "1rem" }} />
 
-      <Card title="2. Who is who" note="Identities are never guessed — set the Telegram user id for each person.">
+      <Card
+        title="2. Who is who"
+        note="Identities are never guessed — pick from the senders actually found in your export (Telegram ids are usually prefixed, e.g. 'user938613594', not bare '938613594')."
+      >
+        {participantsQuery.data?.length > 0 && (
+          <div style={{ marginBottom: "1rem" }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Sender id</th>
+                  <th>Name in export</th>
+                  <th>Messages</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {participantsQuery.data.map((s) => (
+                  <tr key={s.sender_id}>
+                    <td>{s.sender_id}</td>
+                    <td>{s.sender_name || "(no name)"}</td>
+                    <td>{s.message_count}</td>
+                    <td style={{ display: "flex", gap: "0.4rem" }}>
+                      <button className="secondary" onClick={() => pickAs("me", s)}>
+                        Use as Me
+                      </button>
+                      <button className="secondary" onClick={() => pickAs("other", s)}>
+                        Use as Other
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
         <div className="grid grid-2">
           <div>
             <div className="form-field">

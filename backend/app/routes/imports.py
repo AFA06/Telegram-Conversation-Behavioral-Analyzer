@@ -37,9 +37,15 @@ async def import_file(file: UploadFile, db: Session = Depends(get_db)) -> dict:
     finally:
         tmp_path.unlink(missing_ok=True)
 
+    detected = config_service.detect_participants(db)
+
     analysis: dict | None = None
+    analysis_error: str | None = None
     if cfg.me_user_id and cfg.other_user_id:
-        analysis = run_full_analysis(db)
+        try:
+            analysis = run_full_analysis(db)
+        except ValueError as exc:
+            analysis_error = str(exc)
 
     return {
         "imported_count": report.imported_count,
@@ -47,8 +53,18 @@ async def import_file(file: UploadFile, db: Session = Depends(get_db)) -> dict:
         "skipped_count": report.skipped_count,
         "skipped_reasons": report.skipped_reasons,
         "analysis": analysis,
+        "analysis_error": analysis_error,
         "participants_configured": bool(cfg.me_user_id and cfg.other_user_id),
+        "detected_participants": detected,
     }
+
+
+@router.get("/participants")
+def detected_participants(db: Session = Depends(get_db)) -> list[dict]:
+    """Sender ids actually found in the imported messages, ranked by
+    message count — use this instead of guessing the id format.
+    """
+    return config_service.detect_participants(db)
 
 
 @router.post("/analyze")

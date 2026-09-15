@@ -115,19 +115,36 @@ Open `http://localhost:5173`. The dev server proxies `/api` to the backend.
 
 ### 3. Import your conversation
 
-Either through the **Settings** page in the dashboard (recommended — lets
-you pick participants visually), or via the CLI:
+Either through the **Settings** page in the dashboard (recommended — it
+imports the file, lists the actual senders found in it, and lets you click
+"Use as Me" / "Use as Other" instead of typing an id), or via the CLI:
 
 ```bash
 cd backend
 source .venv/bin/activate
-python -m analyzer import /path/to/result.json \
-  --me-id YOUR_TELEGRAM_USER_ID --me-name "Me" \
-  --other-id THEIR_TELEGRAM_USER_ID --other-name "Their name" \
-  --timezone Asia/Tashkent
+
+# 1. Import first, without guessing ids
+python -m analyzer import /path/to/result.json --timezone Asia/Tashkent
+
+# 2. See the EXACT sender ids Telegram used in your export
+python -m analyzer participants
+#   user938613594   Alice    4102 messages
+#   user6424173522  Jayrona  4319 messages
+
+# 3. Configure with those exact ids, then analyze
+python -m analyzer configure --me-id user938613594 --me-name "Me" \
+  --other-id user6424173522 --other-name "Jayrona"
 python -m analyzer analyze
 python -m analyzer stats
 ```
+
+> **Important:** Telegram Desktop exports store sender ids in a *prefixed*
+> form, e.g. `user938613594` — not the bare numeric id you'd see in Telegram
+> settings. Always get the exact string from `python -m analyzer participants`
+> (or the Settings page's sender list) rather than typing it from memory. If
+> the configured ids don't match anything, `analyze` now fails with a clear
+> error listing the real senders found, instead of silently reporting all
+> zeros.
 
 Re-run `python -m analyzer analyze` (or the "Re-run analysis" button in
 Settings) any time you change participants, timezone, the message-burst
@@ -153,7 +170,8 @@ export file directly. Commands: `/overview`, `/activity`, `/response`,
 
 ```bash
 python -m analyzer import <file.json> [--me-id ID --me-name NAME --other-id ID --other-name NAME --timezone TZ]
-python -m analyzer configure [--grouping-window N --session-gap N --min-sample N ...]
+python -m analyzer participants
+python -m analyzer configure [--me-id ID --other-id ID --grouping-window N --session-gap N --min-sample N ...]
 python -m analyzer analyze
 python -m analyzer stats
 python -m analyzer server [--host --port --reload]

@@ -4,10 +4,11 @@ identities are always supplied by the user via the CLI or the Settings page.
 """
 from __future__ import annotations
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.models import AppConfig
+from app.models import AppConfig, Message
 
 CONFIG_ROW_ID = 1
 
@@ -37,6 +38,29 @@ def set_participants(db: Session, me_user_id: str, me_display_name: str, other_u
     db.commit()
     db.refresh(cfg)
     return cfg
+
+
+def detect_participants(db: Session, limit: int = 10) -> list[dict]:
+    """Lists the actual sender ids present in the imported messages, ranked
+    by message count. Telegram exports store ``from_id`` in a prefixed form
+    (e.g. ``user938613594``, not bare ``938613594``), so this is the
+    reliable way to find the exact id string to configure — rather than
+    guessing at the format.
+    """
+    rows = (
+        db.query(Message.sender_id, Message.sender_name, func.count(Message.id).label("count"))
+        .group_by(Message.sender_id, Message.sender_name)
+        .order_by(func.count(Message.id).desc())
+        .limit(limit)
+        .all()
+    )
+    return [{"sender_id": r.sender_id, "sender_name": r.sender_name, "message_count": r.count} for r in rows]
+
+
+def matched_message_count(db: Session, sender_id: str | None) -> int:
+    if not sender_id:
+        return 0
+    return db.query(Message).filter(Message.sender_id == sender_id).count()
 
 
 def role_for_sender(cfg: AppConfig, sender_id: str) -> str:

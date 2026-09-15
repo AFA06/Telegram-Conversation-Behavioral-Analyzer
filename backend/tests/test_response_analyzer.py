@@ -1,5 +1,7 @@
 import datetime as dt
 
+import pytest
+
 from app.services.response_analyzer import (
     build_bursts,
     classify_unanswered,
@@ -8,6 +10,7 @@ from app.services.response_analyzer import (
     run_full_analysis,
 )
 from app.models import Message, ResponseEvent, UnansweredBurst
+from app.services.config_service import set_participants
 from tests.conftest import make_message
 
 BASE = dt.datetime(2026, 1, 2, 20, 0, tzinfo=dt.timezone.utc)  # a Friday
@@ -140,3 +143,22 @@ def test_run_full_analysis_classifies_same_role_followup_as_long_delay(configure
     assert len(unanswered) == 2
     assert unanswered[0].classification == "long_unresolved_delay"
     assert unanswered[1].classification == "no_response_before_export_ended"
+
+
+def test_run_full_analysis_errors_clearly_when_configured_ids_match_nothing(db):
+    """Regression test: a real Telegram export stores sender ids in a
+    prefixed form (e.g. 'user938613594'), not bare numeric ids. If the
+    configured 'me'/'other' ids don't match any imported message, the
+    previous behavior silently produced all-zero stats. It must now raise
+    a clear, actionable error instead.
+    """
+    set_participants(db, me_user_id="938613594", me_display_name="Me", other_user_id="6424173522", other_display_name="Jayrona")
+    messages = [
+        make_message(1, 1, "user938613594", BASE, text="Hey"),
+        make_message(2, 2, "user6424173522", BASE + dt.timedelta(minutes=1), text="Hi"),
+    ]
+    db.add_all(messages)
+    db.commit()
+
+    with pytest.raises(ValueError, match="don't match any imported message senders"):
+        run_full_analysis(db)
