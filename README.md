@@ -160,11 +160,22 @@ echo "TELEGRAM_BOT_TOKEN=<token from @BotFather>" >> .env
 python -m bot.main
 ```
 
-The bot only talks to your local backend's REST API (`BOT_BACKEND_URL`,
-default `http://127.0.0.1:8000`) — it never touches the database or the
-export file directly. Commands: `/overview`, `/activity`, `/response`,
-`/fastest`, `/slowest`, `/longest`, `/sessions`, `/windows`, `/trends`,
-`/ask <question>`.
+Message your bot `/start`, then send it your `result.json` export directly
+as a file — no need to run `analyzer import` yourself. The bot detects
+which of the two senders is you (by matching your real Telegram user id
+against the export), configures participants, and runs the analysis
+automatically. Commands: `/overview`, `/dashboard`, `/fastest`, `/slowest`,
+`/sessions`, `/windows`, `/ask <question>`.
+
+### 5. Cloud mode: no local setup for your users at all
+
+The same codebase can run as a hosted, multi-tenant service — each
+Telegram user gets their own isolated database, imports by sending a file
+straight to the bot, and views the full dashboard as a **Telegram Mini
+App** (opened via a bot button, running right inside Telegram, no
+separate login). See **[DEPLOY.md](DEPLOY.md)** for the full setup
+(Railway + BotFather). Local development is completely unaffected — cloud
+mode only activates when `MULTI_TENANT=true` is set.
 
 ## CLI reference
 
