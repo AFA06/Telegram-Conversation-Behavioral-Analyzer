@@ -246,7 +246,10 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             tmp_path = Path(tmp.name)
         try:
             await tg_file.download_to_drive(custom_path=str(tmp_path))
-            async with _lock_for_tenant(_tenant_id_for(update)):
+            lock = _lock_for_tenant(_tenant_id_for(update))
+            if lock.locked():
+                await status.edit_text(t(lang, "still_processing"))
+            async with lock:
                 outcome = await asyncio.to_thread(_process, tmp_path)
 
             if outcome["kind"] == "invalid_json":
@@ -293,9 +296,21 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 async def handle_pick_me(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
-    await query.answer()
     me_id = query.data.split(":", 1)[1]
     detected = context.chat_data.get("detected_participants", [])
+
+    lock = _lock_for_tenant(_tenant_id_for(update))
+    if lock.locked():
+        # Answer with a visible toast rather than silence — this is exactly
+        # the "I pressed the button and nothing happened" symptom without it.
+        db = _db_for(update)
+        try:
+            lang_for_toast = _resolve_language(db, update)
+        finally:
+            db.close()
+        await query.answer(text=t(lang_for_toast, "still_processing"), show_alert=True)
+    else:
+        await query.answer()
 
     def _work() -> dict:
         db = _db_for(update)
@@ -320,7 +335,7 @@ async def handle_pick_me(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         finally:
             db.close()
 
-    async with _lock_for_tenant(_tenant_id_for(update)):
+    async with lock:
         outcome = await asyncio.to_thread(_work)
     lang = outcome["lang"]
     if outcome["kind"] == "error":

@@ -82,6 +82,10 @@ _STRINGS: dict[str, dict[str, str]] = {
         "en": "Language set to English.",
         "uz": "Til o'zbek tiliga o'zgartirildi.",
     },
+    "still_processing": {
+        "en": "Still working on your previous upload — this can take a moment, please wait…",
+        "uz": "Avvalgi yuklamangiz ustida hali ishlamoqdamiz — bir oz vaqt olishi mumkin, iltimos kuting…",
+    },
     "file_too_large": {
         "en": "That file is too large (over 20MB). Try exporting without media.",
         "uz": "Fayl juda katta (20MB dan oshiq). Media fayllarsiz eksport qilib ko'ring.",
