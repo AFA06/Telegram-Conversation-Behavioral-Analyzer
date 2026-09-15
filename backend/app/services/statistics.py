@@ -4,9 +4,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import pandas as pd
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import AppConfig
+from app.models import AppConfig, Message
 from app.services.config_service import role_for_sender
 
 
@@ -26,8 +27,17 @@ class OverviewStats:
 
 
 def messages_dataframe(db: Session) -> pd.DataFrame:
-    """Loads all messages as a DataFrame with a 'role' column (me/other/unknown)."""
-    df = pd.read_sql("SELECT * FROM messages ORDER BY timestamp_utc", db.bind)
+    """Loads all messages as a DataFrame with a 'role' column (me/other/unknown).
+
+    Uses a SQLAlchemy Core ``select()`` against the mapped Table rather than
+    a raw SQL string: a Postgres tenant's session applies a
+    ``schema_translate_map`` execution option to route queries to that
+    tenant's own schema, but that rewriting only works for Core/ORM
+    constructs — a bare SQL string bypasses it and would silently query the
+    wrong (default) schema.
+    """
+    stmt = select(Message).order_by(Message.timestamp_utc)
+    df = pd.read_sql(stmt, db.bind)
     if df.empty:
         return df
     df["timestamp_local"] = pd.to_datetime(df["timestamp_local"])

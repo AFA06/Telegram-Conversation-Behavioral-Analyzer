@@ -170,12 +170,14 @@ automatically. Commands: `/overview`, `/dashboard`, `/fastest`, `/slowest`,
 ### 5. Cloud mode: no local setup for your users at all
 
 The same codebase can run as a hosted, multi-tenant service — each
-Telegram user gets their own isolated database, imports by sending a file
-straight to the bot, and views the full dashboard as a **Telegram Mini
-App** (opened via a bot button, running right inside Telegram, no
-separate login). See **[DEPLOY.md](DEPLOY.md)** for the full setup
-(Railway + BotFather). Local development is completely unaffected — cloud
-mode only activates when `MULTI_TENANT=true` is set.
+Telegram user gets their own isolated database (a dedicated Postgres
+schema when using a free host with no persistent disk, or a SQLite file
+per tenant on a host that has one), imports by sending a file straight to
+the bot, and views the full dashboard as a **Telegram Mini App** (opened
+via a bot button, running right inside Telegram, no separate login). See
+**[DEPLOY.md](DEPLOY.md)** for the full setup (Render + Neon, both free,
+no credit card). Local development is completely unaffected — cloud mode
+only activates when `MULTI_TENANT=true` is set.
 
 ## CLI reference
 

@@ -2,7 +2,7 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
@@ -19,26 +19,41 @@ async def lifespan(app: FastAPI):
 
     telegram_bot_app = None
     if settings.telegram_bot_token and settings.run_bot_in_process:
-        # Runs the bot's polling loop inside this same process/event loop
-        # so it shares the same filesystem (and therefore the same
-        # per-tenant SQLite files) as the API — the simplest setup for a
-        # single-service deployment (e.g. one Railway service). Disabled
-        # by default so the documented local flow (running
-        # `python -m analyzer server` and `python -m bot.main` as two
-        # separate processes) keeps working without a double-polling
-        # conflict on the same bot token.
+        # Runs the bot inside this same process/event loop so it shares the
+        # same filesystem/DB connections as the API — the simplest setup
+        # for a single-service deployment. Disabled by default so the
+        # documented local flow (running `python -m analyzer server` and
+        # `python -m bot.main` as two separate processes) keeps working
+        # without a double-polling conflict on the same bot token.
         from bot.main import build_application
 
         telegram_bot_app = build_application()
         await telegram_bot_app.initialize()
         await telegram_bot_app.start()
-        await telegram_bot_app.updater.start_polling()
-        logger.info("Telegram bot started in-process (polling)")
+
+        if settings.telegram_webhook_url:
+            # Webhook mode: Telegram pushes updates to us via HTTP POST
+            # (see the /telegram/webhook route below) instead of us
+            # continuously polling. This is what makes the bot work on a
+            # host that sleeps the process when idle (e.g. Render's free
+            # tier) — polling can't survive that (the process isn't
+            # running to poll), but an incoming webhook request wakes it.
+            await telegram_bot_app.bot.set_webhook(
+                url=settings.telegram_webhook_url,
+                secret_token=settings.telegram_webhook_secret or None,
+            )
+            logger.info("Telegram bot started in-process (webhook: %s)", settings.telegram_webhook_url)
+        else:
+            await telegram_bot_app.updater.start_polling()
+            logger.info("Telegram bot started in-process (polling)")
+
+        app.state.telegram_bot_app = telegram_bot_app
 
     yield
 
     if telegram_bot_app is not None:
-        await telegram_bot_app.updater.stop()
+        if telegram_bot_app.updater and telegram_bot_app.updater.running:
+            await telegram_bot_app.updater.stop()
         await telegram_bot_app.stop()
         await telegram_bot_app.shutdown()
 
@@ -64,6 +79,30 @@ app.add_middleware(
 @app.get("/api/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.post("/telegram/webhook")
+async def telegram_webhook(request: Request) -> dict:
+    """Receives pushed updates from Telegram when TELEGRAM_WEBHOOK_URL is
+    set (see the lifespan above). The secret_token header is set by
+    Telegram itself on every genuine webhook call — verifying it stops
+    randoms from POSTing forged updates to this endpoint.
+    """
+    telegram_bot_app = getattr(request.app.state, "telegram_bot_app", None)
+    if telegram_bot_app is None:
+        raise HTTPException(status_code=404, detail="Bot is not running in webhook mode on this server.")
+
+    if settings.telegram_webhook_secret:
+        received = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+        if received != settings.telegram_webhook_secret:
+            raise HTTPException(status_code=403, detail="Invalid webhook secret token.")
+
+    from telegram import Update
+
+    data = await request.json()
+    update = Update.de_json(data, telegram_bot_app.bot)
+    await telegram_bot_app.process_update(update)
+    return {"ok": True}
 
 
 app.include_router(imports.router, prefix="/api/import", tags=["import"])

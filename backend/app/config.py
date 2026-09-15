@@ -43,6 +43,25 @@ class Settings(BaseSettings):
     # token; turn this on for a single-service production deployment.
     run_bot_in_process: bool = False
 
+    # How tenant isolation is implemented:
+    # "sqlite_file" (default): one SQLite file per tenant on local disk —
+    #   simple, zero extra infra, but requires a host with a persistent
+    #   volume (fine for a self-managed VPS; NOT fine for Render's free
+    #   tier, which has no persistent disk).
+    # "postgres_schema": one Postgres SCHEMA per tenant on a single shared
+    #   database (e.g. a free Neon/Supabase project) — works on hosts with
+    #   no persistent disk at all, since the data lives in the external DB.
+    tenant_backend: str = "sqlite_file"
+    # Connection string for the shared Postgres server, only used when
+    # tenant_backend="postgres_schema". Never commit a real one.
+    postgres_url: str | None = None
+    # Optional webhook mode for the bot (needed on hosts that sleep the
+    # process when idle, e.g. Render's free tier — polling can't survive
+    # that, but an incoming webhook request wakes the process). Leave unset
+    # to use polling (the default, and the only mode for local dev).
+    telegram_webhook_url: str | None = None
+    telegram_webhook_secret: str | None = None
+
 
 settings = Settings()
 DATA_DIR.mkdir(parents=True, exist_ok=True)

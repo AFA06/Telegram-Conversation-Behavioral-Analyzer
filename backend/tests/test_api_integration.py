@@ -144,6 +144,31 @@ def test_data_quality_report_endpoint_via_import_response(client: TestClient):
     assert body["skipped_reasons"].get("service_message_ignored") == 1
 
 
+def test_telegram_webhook_404_when_bot_not_running(client: TestClient):
+    # app.state.telegram_bot_app is never set in tests (no bot token/webhook
+    # configured), so the endpoint must reject rather than crash.
+    resp = client.post("/telegram/webhook", json={"update_id": 1})
+    assert resp.status_code == 404
+
+
+def test_telegram_webhook_rejects_wrong_secret_token(client: TestClient, monkeypatch):
+    import app.main as main_module
+
+    class _FakeBotApp:
+        bot = object()
+
+        async def process_update(self, update):
+            raise AssertionError("must not be called when the secret token is wrong")
+
+    app.state.telegram_bot_app = _FakeBotApp()
+    monkeypatch.setattr(main_module.settings, "telegram_webhook_secret", "correct-secret")
+    try:
+        resp = client.post("/telegram/webhook", json={"update_id": 1}, headers={"X-Telegram-Bot-Api-Secret-Token": "wrong"})
+        assert resp.status_code == 403
+    finally:
+        del app.state.telegram_bot_app
+
+
 def test_import_response_includes_detected_participants(client: TestClient):
     body = _import_sample(client)
     ids = {p["sender_id"] for p in body["detected_participants"]}

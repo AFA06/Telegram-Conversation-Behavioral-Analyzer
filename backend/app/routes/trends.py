@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.deps import get_current_db
@@ -24,7 +25,10 @@ def monthly_trends(db: Session = Depends(get_current_db)) -> list[dict]:
     if not resp.empty:
         resp["month"] = pd.to_datetime(resp["trigger_burst_end"]).dt.to_period("M")
 
-    sessions = pd.read_sql("SELECT start_ts, duration_seconds FROM conversation_sessions", db.bind)
+    # A select() over the mapped Table (not a raw SQL string) so a Postgres
+    # tenant's schema_translate_map correctly routes this to their own
+    # schema — see messages_dataframe's docstring for why this matters.
+    sessions = pd.read_sql(select(ConversationSession.start_ts, ConversationSession.duration_seconds), db.bind)
     if not sessions.empty:
         sessions["month"] = pd.to_datetime(sessions["start_ts"]).dt.to_period("M")
 
