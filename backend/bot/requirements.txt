@@ -1,0 +1,4 @@
+# Extra dependency for the optional Telegram bot (Phase 7).
+# Install with: pip install -r backend/bot/requirements.txt
+# (in addition to backend/requirements.txt)
+python-telegram-bot>=21.4

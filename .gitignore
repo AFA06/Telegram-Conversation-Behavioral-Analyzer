@@ -1,0 +1,39 @@
+# --- Private data (NEVER commit) ---
+data/*
+!data/.gitkeep
+*.sqlite3
+*.db
+*.db-journal
+telegram_export*.json
+result.json
+/exports/
+
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+*bot_token*
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# --- Node / frontend ---
+node_modules/
+frontend/dist/
+frontend/.vite/
+npm-debug.log*
+
+# --- OS / editor ---
+.DS_Store
+.vscode/
+.idea/
+*.swp

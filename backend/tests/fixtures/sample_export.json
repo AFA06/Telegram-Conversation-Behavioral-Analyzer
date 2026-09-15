@@ -1,0 +1,14 @@
+{
+  "name": "Synthetic Test Chat",
+  "type": "personal_chat",
+  "id": 999,
+  "messages": [
+    {"id": 1, "type": "message", "date": "2026-01-02T20:00:00", "date_unixtime": "1767384000", "from": "Me", "from_id": "user1000", "text": "Hey"},
+    {"id": 2, "type": "message", "date": "2026-01-02T20:01:00", "date_unixtime": "1767384060", "from": "Me", "from_id": "user1000", "text": "How are you?"},
+    {"id": 3, "type": "message", "date": "2026-01-02T20:05:00", "date_unixtime": "1767384300", "from": "Them", "from_id": "user2000", "text": "Heyy good"},
+    {"id": 4, "type": "message", "date": "2026-01-03T09:00:00", "date_unixtime": "1767430800", "from": "Me", "from_id": "user1000", "text": "Morning"},
+    {"id": 5, "type": "message", "date": "2026-01-03T09:20:00", "date_unixtime": "1767432000", "from": "Them", "from_id": "user2000", "text": ["Morning ", {"type": "bold", "text": "sunshine"}]},
+    {"id": 6, "type": "message", "date": "2026-01-04T22:00:00", "date_unixtime": "1767535200", "from": "Me", "from_id": "user1000", "text": "", "media_type": "voice_message"},
+    {"id": 7, "type": "service", "date": "2026-01-04T22:01:00", "date_unixtime": "1767535260", "actor": "Me", "actor_id": "user1000", "action": "pin_message"}
+  ]
+}
