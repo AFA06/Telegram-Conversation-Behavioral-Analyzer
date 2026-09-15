@@ -1,6 +1,6 @@
 import pandas as pd
 
-from app.services.activity_analyzer import daily_activity, heatmap, hourly_activity, top_activity_windows, weekday_activity
+from app.services.activity_analyzer import daily_activity, fixed_window_volume, heatmap, hourly_activity, top_activity_windows, weekday_activity
 
 
 def _df(rows):
@@ -81,3 +81,22 @@ def test_daily_activity_covers_full_month():
 
 def test_daily_activity_empty_df():
     assert daily_activity(pd.DataFrame(), 2026, 1) == []
+
+
+def test_fixed_window_volume_aligns_to_bucket_boundaries():
+    # messages at hour 19 and 20 both fall in the 18-21 bucket (window_hours=3)
+    df = _df(
+        [
+            {"id": 1, "hour": 19, "weekday": 4, "minute": 0, "role": "other"},
+            {"id": 2, "hour": 20, "weekday": 4, "minute": 30, "role": "other"},
+            {"id": 3, "hour": 22, "weekday": 4, "minute": 0, "role": "other"},  # 21-24 bucket
+        ]
+    )
+    result = fixed_window_volume(df, role="other", window_hours=3)
+    assert result[(4, 18)] == 2
+    assert result[(4, 21)] == 1
+
+
+def test_fixed_window_volume_empty_df():
+    assert fixed_window_volume(pd.DataFrame(), role="other", window_hours=3) == {}
+    assert fixed_window_volume(pd.DataFrame(), role="both", window_hours=3) == {}

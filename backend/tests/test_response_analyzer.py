@@ -162,3 +162,35 @@ def test_run_full_analysis_errors_clearly_when_configured_ids_match_nothing(db):
 
     with pytest.raises(ValueError, match="don't match any imported message senders"):
         run_full_analysis(db)
+
+
+def test_run_full_analysis_buckets_response_events_by_local_timezone_not_utc(configured_db):
+    """Regression test: ResponseEvent.weekday/hour (and the stored burst
+    timestamps) must reflect the configured LOCAL timezone, not UTC or the
+    server's system timezone — spec section 5. Uses Pacific/Honolulu
+    (UTC-10, no DST) so a late-UTC-evening message lands on the PREVIOUS
+    weekday locally, making a UTC/local mixup impossible to miss.
+    """
+    db = configured_db
+    from app.services.config_service import get_or_create_config
+
+    cfg = get_or_create_config(db)
+    cfg.timezone = "Pacific/Honolulu"
+    db.commit()
+
+    # 2026-01-03 is a Saturday in UTC; at UTC-10 it's still Friday locally.
+    utc_saturday_morning = dt.datetime(2026, 1, 3, 8, 0, tzinfo=dt.timezone.utc)
+    messages = [
+        make_message(1, 1, "user1000", utc_saturday_morning, text="Hey"),
+        make_message(2, 2, "user2000", utc_saturday_morning + dt.timedelta(minutes=5), text="Hi"),
+    ]
+    db.add_all(messages)
+    db.commit()
+
+    run_full_analysis(db)
+
+    event = db.query(ResponseEvent).one()
+    assert event.weekday == 4  # Friday locally, not Saturday (5) in UTC
+    assert event.hour == 22  # 08:00 UTC - 10h = 22:00 local, previous day
+    assert event.trigger_burst_end.hour == 22
+    assert event.trigger_burst_end.weekday() == 4

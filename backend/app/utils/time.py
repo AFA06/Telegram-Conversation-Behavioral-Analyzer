@@ -38,6 +38,17 @@ def parse_export_timestamp(date_str: str | None, date_unixtime: str | int | None
 
 
 def to_local(timestamp_utc: dt.datetime, timezone_name: str) -> dt.datetime:
+    """Converts a UTC timestamp to the given local timezone.
+
+    SQLite (via SQLAlchemy) round-trips datetimes as naive — a value read
+    back from the database has no tzinfo even though the column always
+    holds UTC. A naive datetime's ``.astimezone()`` assumes the *system's*
+    local timezone, not UTC, so we must attach UTC explicitly first;
+    otherwise conversions would silently depend on the server's system
+    timezone instead of the stored UTC instant.
+    """
+    if timestamp_utc.tzinfo is None:
+        timestamp_utc = timestamp_utc.replace(tzinfo=dt.timezone.utc)
     return timestamp_utc.astimezone(ZoneInfo(timezone_name))
 
 

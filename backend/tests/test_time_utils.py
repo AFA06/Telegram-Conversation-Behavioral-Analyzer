@@ -29,6 +29,17 @@ def test_to_local_conversion_tashkent():
     assert local.utcoffset() == dt.timedelta(hours=5)
 
 
+def test_to_local_treats_naive_input_as_utc():
+    """Regression test: SQLite round-trips datetimes as naive even though
+    the column always holds UTC. A naive datetime must be treated as UTC,
+    not silently reinterpreted as the server's system timezone.
+    """
+    naive_utc = dt.datetime(2026, 1, 1, 15, 0)  # no tzinfo, same instant as above
+    local = to_local(naive_utc, "Asia/Tashkent")
+    assert local.hour == 20
+    assert local.utcoffset() == dt.timedelta(hours=5)
+
+
 def test_is_reasonable_timestamp_bounds():
     assert is_reasonable_timestamp(dt.datetime(2025, 6, 1, tzinfo=dt.timezone.utc)) is True
     assert is_reasonable_timestamp(dt.datetime(2005, 1, 1, tzinfo=dt.timezone.utc)) is False

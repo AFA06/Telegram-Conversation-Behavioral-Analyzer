@@ -15,7 +15,7 @@ WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturd
 
 
 def _filter_role(df: pd.DataFrame, role: str) -> pd.DataFrame:
-    if role == "both":
+    if role == "both" or df.empty:
         return df
     return df[df["role"] == role]
 
@@ -78,6 +78,21 @@ def daily_activity(df: pd.DataFrame, year: int, month: int) -> list[dict]:
         other = int(counts.loc[day, "other"]) if day in counts.index and "other" in counts.columns else 0
         result.append({"day": day, "me_count": me, "other_count": other, "total": me + other})
     return result
+
+
+def fixed_window_volume(df: pd.DataFrame, role: str, window_hours: int) -> dict[tuple[int, int], int]:
+    """Message counts per (weekday, start_hour) bucket, using the SAME fixed
+    hour-aligned bucketing as ``response_analyzer.best_response_windows``
+    (start_hour = (hour // window_hours) * window_hours). Kept separate from
+    ``top_activity_windows`` (which picks greedy, non-overlapping windows
+    for display) so the two can be safely cross-referenced by key.
+    """
+    sub = _filter_role(df, role)
+    if sub.empty:
+        return {}
+    buckets = (sub["hour"] // window_hours) * window_hours
+    counts = sub.groupby([sub["weekday"], buckets]).size()
+    return {(int(weekday), int(start_hour)): int(count) for (weekday, start_hour), count in counts.items()}
 
 
 def top_activity_windows(

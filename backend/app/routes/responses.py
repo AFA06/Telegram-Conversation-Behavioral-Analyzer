@@ -15,7 +15,7 @@ from app.services.response_analyzer import (
     response_stats_by_hour,
     response_stats_by_weekday,
 )
-from app.services.activity_analyzer import top_activity_windows
+from app.services import activity_analyzer
 from app.services.statistics import messages_dataframe
 from app.utils.formatting import format_duration
 
@@ -124,15 +124,15 @@ def historically_responsive(top_n: int = Query(5, ge=1, le=20), db: Session = De
         }
 
     df = messages_dataframe(db)
-    volume_windows = top_activity_windows(df, role="other", window_minutes=window_hours * 60, top_n=50)
-    volume_lookup = {(w["weekday"], w["start_label"]): w["message_count"] for w in volume_windows}
+    volume_lookup = activity_analyzer.fixed_window_volume(df, role="other", window_hours=window_hours)
 
     max_count = max((w["sample_size"] for w in speed_windows), default=1)
     min_median = min((w["median_seconds"] for w in speed_windows), default=1)
 
     scored = []
     for w in speed_windows:
-        volume = volume_lookup.get((w["weekday"], w["start_label"]), 0)
+        start_hour = int(w["start_label"].split(":")[0])
+        volume = volume_lookup.get((w["weekday"], start_hour), 0)
         speed_score = min_median / w["median_seconds"] if w["median_seconds"] else 0
         volume_score = w["sample_size"] / max_count if max_count else 0
         composite = 0.5 * speed_score + 0.5 * volume_score

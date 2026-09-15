@@ -109,6 +109,22 @@ def test_export_json_and_html(client: TestClient):
     assert "Telegram Conversation Report" in html.text
 
 
+def test_historically_responsive_message_volume_matches_sample_size(client: TestClient):
+    """Regression test: message_volume must reflect actual activity in that
+    window, not silently read 0 because of a bucket-alignment mismatch
+    between the volume lookup and the response-time buckets.
+    """
+    _import_sample(client)
+    # lower the sample-size gate so the tiny fixture still produces windows
+    client.put("/api/config/settings", json={"min_sample_size": 1})
+    client.post("/api/import/analyze")
+
+    data = client.get("/api/responses/historically-responsive?top_n=5").json()
+    assert data["windows"], "expected at least one window with min_sample_size=1"
+    for w in data["windows"]:
+        assert w["message_volume"] >= 1, w
+
+
 def test_bot_ask_fastest(client: TestClient):
     _import_sample(client)
     resp = client.post("/api/bot/ask", json={"question": "What was her fastest reply?"})

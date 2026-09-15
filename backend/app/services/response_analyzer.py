@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from app.models import AppConfig, ConversationSession, Message, ResponseEvent, UnansweredBurst
 from app.services.config_service import get_or_create_config, role_for_sender
 from app.services.session_analyzer import SessionData, build_sessions
+from app.utils.time import to_local
 
 UNANSWERED_QUICK_FOLLOWUP_HOURS = 3.0
 
@@ -125,11 +126,14 @@ def run_full_analysis(db: Session) -> dict:
         return {"sessions": 0, "response_events": 0, "unanswered_bursts": 0}
 
     # --- sessions ---
+    # Session-gap detection runs on UTC instants (DST-safe); duration_seconds
+    # is computed from that before we convert start/end to local time for
+    # storage and display (spec section 5: all analysis shown in local time).
     sessions = build_sessions(messages, roles, cfg.session_gap_hours)
     session_rows = [
         ConversationSession(
-            start_ts=s.start_ts,
-            end_ts=s.end_ts,
+            start_ts=to_local(s.start_ts, cfg.timezone),
+            end_ts=to_local(s.end_ts, cfg.timezone),
             duration_seconds=s.duration_seconds,
             message_count=s.message_count,
             me_count=s.me_count,
@@ -159,21 +163,24 @@ def run_full_analysis(db: Session) -> dict:
             response_seconds = (next_burst.start_ts - burst.end_ts).total_seconds()
             if response_seconds < 0:
                 continue  # defensive: should not happen with sorted input
+            trigger_end_local = to_local(burst.end_ts, cfg.timezone)
             response_rows.append(
                 ResponseEvent(
                     session_id=session_id,
                     trigger_role=burst.role,
                     response_role=next_burst.role,
-                    trigger_burst_start=burst.start_ts,
-                    trigger_burst_end=burst.end_ts,
+                    trigger_burst_start=to_local(burst.start_ts, cfg.timezone),
+                    trigger_burst_end=trigger_end_local,
                     trigger_message_count=burst.count,
                     trigger_first_message_id=burst.message_ids[0],
                     trigger_last_message_id=burst.message_ids[-1],
-                    response_burst_start=next_burst.start_ts,
+                    response_burst_start=to_local(next_burst.start_ts, cfg.timezone),
                     response_first_message_id=next_burst.message_ids[0],
                     response_seconds=response_seconds,
-                    weekday=burst.end_ts.weekday(),
-                    hour=burst.end_ts.hour,
+                    # local weekday/hour, so activity and response-time views
+                    # bucket by the same (configured) timezone — see section 5.
+                    weekday=trigger_end_local.weekday(),
+                    hour=trigger_end_local.hour,
                 )
             )
         else:
@@ -185,8 +192,8 @@ def run_full_analysis(db: Session) -> dict:
                 UnansweredBurst(
                     session_id=session_id,
                     sender_role=burst.role,
-                    burst_start=burst.start_ts,
-                    burst_end=burst.end_ts,
+                    burst_start=to_local(burst.start_ts, cfg.timezone),
+                    burst_end=to_local(burst.end_ts, cfg.timezone),
                     message_count=burst.count,
                     first_message_id=burst.message_ids[0],
                     last_message_id=burst.message_ids[-1],
