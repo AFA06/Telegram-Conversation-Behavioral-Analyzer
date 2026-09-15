@@ -40,6 +40,7 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+from telegram.request import HTTPXRequest
 
 from app.config import settings
 from app.database import get_session_for_tenant
@@ -113,77 +114,87 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     status = await update.message.reply_text("Got it — importing your export…")
 
-    tg_file = await context.bot.get_file(doc.file_id)
-    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
-        tmp_path = Path(tmp.name)
     try:
-        await tg_file.download_to_drive(custom_path=str(tmp_path))
-
-        import json
-
+        tg_file = await context.bot.get_file(doc.file_id)
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
+            tmp_path = Path(tmp.name)
         try:
-            data = json.loads(tmp_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            await status.edit_text("That doesn't look like valid JSON. Make sure you're sending result.json.")
-            return
+            await tg_file.download_to_drive(custom_path=str(tmp_path))
 
-        if data.get("type") not in ("personal_chat", None):
-            await status.edit_text(
-                "This looks like a group/channel export. This tool analyzes one-on-one "
-                "conversations only — please export a personal chat."
-            )
-            return
+            import json
 
-        db = _db_for(update)
-        try:
-            report = import_export_file(db, tmp_path, timezone_name=settings.default_timezone)
-            detected = config_service.detect_participants(db, limit=5)
+            try:
+                data = json.loads(tmp_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                await status.edit_text("That doesn't look like valid JSON. Make sure you're sending result.json.")
+                return
 
-            my_sender_id = f"user{update.effective_user.id}"
-            mine = next((d for d in detected if d["sender_id"] == my_sender_id), None)
-            others = [d for d in detected if d["sender_id"] != my_sender_id]
-
-            if len(detected) < 2:
+            if data.get("type") not in ("personal_chat", None):
                 await status.edit_text(
-                    f"Imported {report.valid_count} messages, but I only found one sender in this "
-                    "export — I need a two-person conversation to analyze response patterns."
+                    "This looks like a group/channel export. This tool analyzes one-on-one "
+                    "conversations only — please export a personal chat."
                 )
                 return
 
-            if mine and others:
-                cfg = config_service.set_participants(
-                    db,
-                    me_user_id=mine["sender_id"],
-                    me_display_name=mine["sender_name"] or "Me",
-                    other_user_id=others[0]["sender_id"],
-                    other_display_name=others[0]["sender_name"] or "Other person",
-                )
-                cfg.timezone = settings.default_timezone
-                db.commit()
-                result = run_full_analysis(db)
-                keyboard = _dashboard_keyboard()
-                await status.edit_text(
-                    f"Imported {report.valid_count} messages with {cfg.other_display_name}.\n"
-                    f"Sessions: {result['sessions']} · Response events: {result['response_events']}\n\n"
-                    "Tap below to see the full dashboard, or try /overview, /fastest, /ask." + ("" if keyboard else "\n\n(Dashboard link not configured yet — ask commands still work.)"),
-                    reply_markup=keyboard,
-                )
-            else:
-                # Couldn't auto-match "me" by Telegram id — ask explicitly.
-                buttons = [
-                    [InlineKeyboardButton(f"This is me ({d['sender_name'] or d['sender_id']})", callback_data=f"pickme:{d['sender_id']}")]
-                    for d in detected[:2]
-                ]
-                context.chat_data["detected_participants"] = detected[:2]
-                await status.edit_text(
-                    f"Imported {report.valid_count} messages. I couldn't automatically tell which "
-                    "sender is you — please pick:",
-                    reply_markup=InlineKeyboardMarkup(buttons),
-                )
+            db = _db_for(update)
+            try:
+                report = import_export_file(db, tmp_path, timezone_name=settings.default_timezone)
+                detected = config_service.detect_participants(db, limit=5)
+
+                my_sender_id = f"user{update.effective_user.id}"
+                mine = next((d for d in detected if d["sender_id"] == my_sender_id), None)
+                others = [d for d in detected if d["sender_id"] != my_sender_id]
+
+                if len(detected) < 2:
+                    await status.edit_text(
+                        f"Imported {report.valid_count} messages, but I only found one sender in this "
+                        "export — I need a two-person conversation to analyze response patterns."
+                    )
+                    return
+
+                if mine and others:
+                    cfg = config_service.set_participants(
+                        db,
+                        me_user_id=mine["sender_id"],
+                        me_display_name=mine["sender_name"] or "Me",
+                        other_user_id=others[0]["sender_id"],
+                        other_display_name=others[0]["sender_name"] or "Other person",
+                    )
+                    cfg.timezone = settings.default_timezone
+                    db.commit()
+                    result = run_full_analysis(db)
+                    keyboard = _dashboard_keyboard()
+                    await status.edit_text(
+                        f"Imported {report.valid_count} messages with {cfg.other_display_name}.\n"
+                        f"Sessions: {result['sessions']} · Response events: {result['response_events']}\n\n"
+                        "Tap below to see the full dashboard, or try /overview, /fastest, /ask." + ("" if keyboard else "\n\n(Dashboard link not configured yet — ask commands still work.)"),
+                        reply_markup=keyboard,
+                    )
+                else:
+                    # Couldn't auto-match "me" by Telegram id — ask explicitly.
+                    buttons = [
+                        [InlineKeyboardButton(f"This is me ({d['sender_name'] or d['sender_id']})", callback_data=f"pickme:{d['sender_id']}")]
+                        for d in detected[:2]
+                    ]
+                    context.chat_data["detected_participants"] = detected[:2]
+                    await status.edit_text(
+                        f"Imported {report.valid_count} messages. I couldn't automatically tell which "
+                        "sender is you — please pick:",
+                        reply_markup=InlineKeyboardMarkup(buttons),
+                    )
+            finally:
+                db.close()
         finally:
-            db.close()
-    finally:
-        tmp_path.unlink(missing_ok=True)
+            tmp_path.unlink(missing_ok=True)
+    except Exception:
+        logger.exception("handle_document failed for chat %s", update.effective_chat.id if update.effective_chat else "?")
+        try:
+            await status.edit_text(
+                "Something went wrong while importing that file. This has been logged — "
+                "please try sending it again in a moment."
+            )
+        except Exception:
+            pass
 
 
 async def handle_pick_me(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -336,12 +347,22 @@ async def ask(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         db.close()
 
 
+async def _on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    logger.exception("Unhandled error while processing update %s", update, exc_info=context.error)
+
+
 def build_application() -> Application:
     if not settings.telegram_bot_token:
         raise RuntimeError(
             "TELEGRAM_BOT_TOKEN is not set. Put it in backend/.env (see .env.example) — never commit it."
         )
-    app = Application.builder().token(settings.telegram_bot_token).build()
+    # Default httpx timeouts (5s) are too tight for get_file/download on a
+    # slower connection — a timeout there previously left the user staring
+    # at "Got it..." forever with no error shown (see handle_document's
+    # try/except for the user-facing side of this fix).
+    request = HTTPXRequest(connect_timeout=15.0, read_timeout=30.0, write_timeout=30.0, media_write_timeout=60.0)
+    app = Application.builder().token(settings.telegram_bot_token).request(request).build()
+    app.add_error_handler(_on_error)
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("dashboard", dashboard))
