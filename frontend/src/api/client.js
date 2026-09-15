@@ -1,8 +1,22 @@
 const BASE = "/api";
 
+function telegramInitData() {
+  try {
+    return window.Telegram?.WebApp?.initData || null;
+  } catch {
+    return null;
+  }
+}
+
 async function request(path, options = {}) {
+  const initData = telegramInitData();
+  const headers = {
+    ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
+    ...(initData ? { "X-Telegram-Init-Data": initData } : {}),
+  };
+
   const res = await fetch(`${BASE}${path}`, {
-    headers: options.body instanceof FormData ? undefined : { "Content-Type": "application/json" },
+    headers,
     ...options,
   });
   if (!res.ok) {
