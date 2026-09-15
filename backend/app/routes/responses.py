@@ -5,7 +5,7 @@ import datetime as dt
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.deps import get_current_db
 from app.models import ResponseEvent, UnansweredBurst
 from app.services import config_service
 from app.services.response_analyzer import (
@@ -29,7 +29,7 @@ def _events(db: Session, role: str) -> list[ResponseEvent]:
 
 
 @router.get("/summary")
-def summary(role: str = RoleParam, db: Session = Depends(get_db)) -> dict:
+def summary(role: str = RoleParam, db: Session = Depends(get_current_db)) -> dict:
     """Section 13-14, 25: percentiles + the response-time histogram."""
     secs = [e.response_seconds for e in _events(db, role)]
     stats = response_percentiles(secs)
@@ -39,7 +39,7 @@ def summary(role: str = RoleParam, db: Session = Depends(get_db)) -> dict:
 
 
 @router.get("/fastest")
-def fastest(role: str = RoleParam, limit: int = Query(10, ge=1, le=100), db: Session = Depends(get_db)) -> list[dict]:
+def fastest(role: str = RoleParam, limit: int = Query(10, ge=1, le=100), db: Session = Depends(get_current_db)) -> list[dict]:
     events = (
         db.query(ResponseEvent)
         .filter_by(response_role=role)
@@ -51,7 +51,7 @@ def fastest(role: str = RoleParam, limit: int = Query(10, ge=1, le=100), db: Ses
 
 
 @router.get("/longest")
-def longest(role: str = RoleParam, limit: int = Query(20, ge=1, le=200), db: Session = Depends(get_db)) -> list[dict]:
+def longest(role: str = RoleParam, limit: int = Query(20, ge=1, le=200), db: Session = Depends(get_current_db)) -> list[dict]:
     """Section 14: 'Longest observed response delays' — deliberately not
     called 'ignored' anywhere, since the data can't prove intent.
     """
@@ -82,14 +82,14 @@ def _event_out(e: ResponseEvent) -> dict:
 
 
 @router.get("/by-weekday")
-def by_weekday(role: str = RoleParam, db: Session = Depends(get_db)) -> list[dict]:
+def by_weekday(role: str = RoleParam, db: Session = Depends(get_current_db)) -> list[dict]:
     """Section 23."""
     cfg = config_service.get_or_create_config(db)
     return response_stats_by_weekday(db, role, cfg.min_sample_size)
 
 
 @router.get("/by-hour")
-def by_hour(role: str = RoleParam, db: Session = Depends(get_db)) -> list[dict]:
+def by_hour(role: str = RoleParam, db: Session = Depends(get_current_db)) -> list[dict]:
     """Section 24."""
     cfg = config_service.get_or_create_config(db)
     return response_stats_by_hour(db, role, cfg.min_sample_size)
@@ -100,7 +100,7 @@ def best_windows(
     role: str = RoleParam,
     window_hours: int = Query(3, ge=1, le=12),
     top_n: int = Query(5, ge=1, le=20),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_current_db),
 ) -> list[dict]:
     """Section 18: fastest *observed* response windows, gated by min sample size."""
     cfg = config_service.get_or_create_config(db)
@@ -108,7 +108,7 @@ def best_windows(
 
 
 @router.get("/historically-responsive")
-def historically_responsive(top_n: int = Query(5, ge=1, le=20), db: Session = Depends(get_db)) -> dict:
+def historically_responsive(top_n: int = Query(5, ge=1, le=20), db: Session = Depends(get_current_db)) -> dict:
     """Section 20: 'Historically Responsive Windows' — ranks (weekday,
     window) buckets using BOTH message volume and response speed, always
     gated by the configured minimum sample size. Explicitly framed as
@@ -154,7 +154,7 @@ def unanswered(
     role: str = Query("me", pattern="^(me|other)$"),
     classification: str | None = Query(None),
     limit: int = Query(50, ge=1, le=500),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_current_db),
 ) -> dict:
     """Section 15: messages without a subsequent response, bucketed by
     likely explanation. Never labeled as intentional ignoring.

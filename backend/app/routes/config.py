@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.deps import get_current_db
 from app.schemas import AppConfigOut, ParticipantConfigIn, SettingsIn
 from app.services import config_service
 
@@ -11,12 +11,12 @@ router = APIRouter()
 
 
 @router.get("", response_model=AppConfigOut)
-def get_config(db: Session = Depends(get_db)) -> AppConfigOut:
+def get_config(db: Session = Depends(get_current_db)) -> AppConfigOut:
     return AppConfigOut.model_validate(config_service.get_or_create_config(db))
 
 
 @router.put("/participants", response_model=AppConfigOut)
-def set_participants(payload: ParticipantConfigIn, db: Session = Depends(get_db)) -> AppConfigOut:
+def set_participants(payload: ParticipantConfigIn, db: Session = Depends(get_current_db)) -> AppConfigOut:
     cfg = config_service.set_participants(
         db,
         me_user_id=payload.me_user_id,
@@ -28,7 +28,7 @@ def set_participants(payload: ParticipantConfigIn, db: Session = Depends(get_db)
 
 
 @router.put("/settings", response_model=AppConfigOut)
-def update_settings(payload: SettingsIn, db: Session = Depends(get_db)) -> AppConfigOut:
+def update_settings(payload: SettingsIn, db: Session = Depends(get_current_db)) -> AppConfigOut:
     cfg = config_service.get_or_create_config(db)
     if payload.timezone is not None:
         cfg.timezone = payload.timezone

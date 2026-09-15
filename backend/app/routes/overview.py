@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.deps import get_current_db
 from app.models import ConversationSession, ResponseEvent
 from app.services import config_service, statistics
 from app.services.response_analyzer import response_percentiles
@@ -12,7 +12,7 @@ router = APIRouter()
 
 
 @router.get("")
-def get_overview(db: Session = Depends(get_db)) -> dict:
+def get_overview(db: Session = Depends(get_current_db)) -> dict:
     """Section 6 + 29: totals, span, and the headline overview cards."""
     cfg = config_service.get_or_create_config(db)
     overview = statistics.compute_overview(db)

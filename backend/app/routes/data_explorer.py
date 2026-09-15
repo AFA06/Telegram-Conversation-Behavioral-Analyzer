@@ -5,7 +5,7 @@ import datetime as dt
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.deps import get_current_db
 from app.models import ConversationSession, Message, ResponseEvent
 from app.services import config_service
 from app.services.config_service import role_for_sender
@@ -24,7 +24,7 @@ def browse_messages(
     message_type: str | None = None,
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_current_db),
 ) -> dict:
     """Section 30: browse raw messages with filters."""
     cfg = config_service.get_or_create_config(db)
@@ -68,7 +68,7 @@ def browse_messages(
 
 
 @router.get("/response-events/{event_id}")
-def response_event_detail(event_id: int, db: Session = Depends(get_db)) -> dict:
+def response_event_detail(event_id: int, db: Session = Depends(get_current_db)) -> dict:
     """Section 30: clicking a response event shows both messages, the
     delay, and which conversation session it belongs to.
     """

@@ -26,9 +26,20 @@ class Settings(BaseSettings):
     telegram_bot_token: str | None = None
     bot_backend_url: str = "http://127.0.0.1:8000"
 
-    # CORS for the local dashboard
+    # CORS for the local dashboard / Mini App origin
     dashboard_origin: str = "http://localhost:5173"
+
+    # --- Cloud / multi-tenant mode (Phase 9) ---
+    # False (default): original single-user local-first behavior, unchanged.
+    # True: each Telegram user gets an isolated database, and every API
+    # request must carry a verified Telegram Mini App initData header.
+    multi_tenant: bool = False
+    tenant_db_dir: str = str(DATA_DIR / "tenants")
+    # Public base URL the bot uses to build the Mini App button link.
+    public_web_app_url: str | None = None
 
 
 settings = Settings()
 DATA_DIR.mkdir(parents=True, exist_ok=True)
+if settings.multi_tenant:
+    Path(settings.tenant_db_dir).mkdir(parents=True, exist_ok=True)

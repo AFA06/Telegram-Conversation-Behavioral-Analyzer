@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.deps import get_current_db
 from app.models import ConversationSession, Message
 from app.utils.formatting import format_duration
 
@@ -27,7 +27,7 @@ def _session_out(s: ConversationSession) -> dict:
 def list_sessions(
     limit: int = Query(50, ge=1, le=1000),
     offset: int = Query(0, ge=0),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_current_db),
 ) -> dict:
     """Section 16: paginated session list, most recent first."""
     total = db.query(ConversationSession).count()
@@ -42,7 +42,7 @@ def list_sessions(
 
 
 @router.get("/summary")
-def sessions_summary(db: Session = Depends(get_db)) -> dict:
+def sessions_summary(db: Session = Depends(get_current_db)) -> dict:
     """Section 16: session-level aggregate stats."""
     rows = db.query(ConversationSession).all()
     if not rows:
@@ -66,7 +66,7 @@ def sessions_summary(db: Session = Depends(get_db)) -> dict:
 def longest_sessions(
     by: str = Query("duration", pattern="^(duration|messages)$"),
     limit: int = Query(10, ge=1, le=100),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_current_db),
 ) -> list[dict]:
     """Section 17."""
     order_col = ConversationSession.duration_seconds if by == "duration" else ConversationSession.message_count
@@ -75,7 +75,7 @@ def longest_sessions(
 
 
 @router.get("/{session_id}")
-def session_detail(session_id: int, db: Session = Depends(get_db)) -> dict:
+def session_detail(session_id: int, db: Session = Depends(get_current_db)) -> dict:
     s = db.get(ConversationSession, session_id)
     if s is None:
         raise HTTPException(status_code=404, detail="Session not found")

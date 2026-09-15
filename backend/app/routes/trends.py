@@ -4,7 +4,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.deps import get_current_db
 from app.models import ConversationSession
 from app.services.response_analyzer import response_events_dataframe
 from app.services.statistics import messages_dataframe
@@ -13,7 +13,7 @@ router = APIRouter()
 
 
 @router.get("/monthly")
-def monthly_trends(db: Session = Depends(get_db)) -> list[dict]:
+def monthly_trends(db: Session = Depends(get_current_db)) -> list[dict]:
     """Section 21."""
     msgs = messages_dataframe(db)
     if msgs.empty:
@@ -52,7 +52,7 @@ def monthly_trends(db: Session = Depends(get_db)) -> list[dict]:
 
 
 @router.get("/compare")
-def compare_periods(n_months: int = Query(3, ge=1, le=24), db: Session = Depends(get_db)) -> dict:
+def compare_periods(n_months: int = Query(3, ge=1, le=24), db: Session = Depends(get_current_db)) -> dict:
     """Section 22: first N months vs. last N months, using neutral
     percentage-change language only — no psychological interpretation.
     """

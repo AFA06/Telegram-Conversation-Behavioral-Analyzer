@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.deps import get_current_db
 from app.services import config_service
 from app.services.importer import import_export_file
 from app.services.response_analyzer import run_full_analysis
@@ -16,7 +16,7 @@ router = APIRouter()
 
 
 @router.post("")
-async def import_file(file: UploadFile, db: Session = Depends(get_db)) -> dict:
+async def import_file(file: UploadFile, db: Session = Depends(get_current_db)) -> dict:
     """Uploads a Telegram Desktop JSON export, replacing any previously
     imported conversation. If participants are already configured,
     re-analyzes automatically.
@@ -60,7 +60,7 @@ async def import_file(file: UploadFile, db: Session = Depends(get_db)) -> dict:
 
 
 @router.get("/participants")
-def detected_participants(db: Session = Depends(get_db)) -> list[dict]:
+def detected_participants(db: Session = Depends(get_current_db)) -> list[dict]:
     """Sender ids actually found in the imported messages, ranked by
     message count — use this instead of guessing the id format.
     """
@@ -68,7 +68,7 @@ def detected_participants(db: Session = Depends(get_db)) -> list[dict]:
 
 
 @router.post("/analyze")
-def reanalyze(db: Session = Depends(get_db)) -> dict:
+def reanalyze(db: Session = Depends(get_current_db)) -> dict:
     """Re-runs session/response-time analysis (e.g. after changing
     participants, timezone, grouping window, or session gap in Settings).
     """

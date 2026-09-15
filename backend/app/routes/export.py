@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import HTMLResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.deps import get_current_db
 from app.models import ConversationSession, ResponseEvent
 from app.services import activity_analyzer, config_service, statistics
 from app.services.response_analyzer import response_percentiles, response_stats_by_hour, response_stats_by_weekday
@@ -38,7 +38,7 @@ def _bundle(db: Session) -> dict:
 
 
 @router.get("/json")
-def export_json(db: Session = Depends(get_db)) -> dict:
+def export_json(db: Session = Depends(get_current_db)) -> dict:
     """Section 31: exports calculated statistics — never raw messages."""
     return _bundle(db)
 
@@ -46,7 +46,7 @@ def export_json(db: Session = Depends(get_db)) -> dict:
 @router.get("/csv")
 def export_csv(
     dataset: str = Query("response_events", pattern="^(response_events|weekday|hourly|sessions)$"),
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_current_db),
 ) -> StreamingResponse:
     buf = io.StringIO()
 
@@ -78,7 +78,7 @@ def export_csv(
 
 
 @router.get("/html", response_class=HTMLResponse)
-def export_html(db: Session = Depends(get_db)) -> str:
+def export_html(db: Session = Depends(get_current_db)) -> str:
     """Section 31: a simple, self-contained HTML statistics report."""
     b = _bundle(db)
     ov = b["overview"]
