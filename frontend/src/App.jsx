@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Route, Routes } from "react-router-dom";
 import Sidebar from "./components/Sidebar";
 import Overview from "./pages/Overview";
@@ -10,6 +11,13 @@ import DataExplorer from "./pages/DataExplorer";
 import Settings from "./pages/Settings";
 
 export default function App() {
+  useEffect(() => {
+    // No-op outside Telegram (window.Telegram is undefined there).
+    const tg = window.Telegram?.WebApp;
+    tg?.ready();
+    tg?.expand();
+  }, []);
+
   return (
     <div className="app-shell">
       <Sidebar />

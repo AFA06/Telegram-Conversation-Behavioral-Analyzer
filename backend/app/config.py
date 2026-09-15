@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     tenant_db_dir: str = str(DATA_DIR / "tenants")
     # Public base URL the bot uses to build the Mini App button link.
     public_web_app_url: str | None = None
+    # Runs the bot's polling loop inside the API process (see app/main.py's
+    # lifespan). Off by default so the local two-process flow (`analyzer
+    # server` + `python -m bot.main`) doesn't double-poll the same bot
+    # token; turn this on for a single-service production deployment.
+    run_bot_in_process: bool = False
 
 
 settings = Settings()
