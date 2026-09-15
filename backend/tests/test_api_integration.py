@@ -1,3 +1,5 @@
+import asyncio
+import time
 from pathlib import Path
 
 import pytest
@@ -165,6 +167,42 @@ def test_telegram_webhook_rejects_wrong_secret_token(client: TestClient, monkeyp
     try:
         resp = client.post("/telegram/webhook", json={"update_id": 1}, headers={"X-Telegram-Bot-Api-Secret-Token": "wrong"})
         assert resp.status_code == 403
+    finally:
+        del app.state.telegram_bot_app
+
+
+def test_telegram_webhook_acks_immediately_without_waiting_for_processing(client: TestClient):
+    """Regression test for the production outage: the webhook endpoint
+    must return before the update finishes processing, not after —
+    otherwise a slow update (a big import over a real network DB) exceeds
+    Telegram's own webhook timeout, and Telegram resends the same update,
+    causing it to be processed twice concurrently (this is exactly what
+    caused duplicate-key crashes in production).
+    """
+    import app.main as main_module
+
+    started = asyncio.Event()
+    finished = asyncio.Event()
+
+    class _SlowBotApp:
+        bot = object()
+
+        async def process_update(self, update):
+            started.set()
+            await asyncio.sleep(0.3)  # stands in for a slow real import
+            finished.set()
+
+    app.state.telegram_bot_app = _SlowBotApp()
+    try:
+        t0 = time.monotonic()
+        resp = client.post("/telegram/webhook", json={"update_id": 1})
+        elapsed = time.monotonic() - t0
+
+        assert resp.status_code == 200
+        assert resp.json() == {"ok": True}
+        # the request must return well before the 0.3s of "processing" —
+        # otherwise this is the exact bug that caused the outage
+        assert elapsed < 0.3, f"webhook response took {elapsed}s — it's waiting for processing to finish"
     finally:
         del app.state.telegram_bot_app
 

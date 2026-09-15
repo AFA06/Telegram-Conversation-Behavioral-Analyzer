@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -81,12 +82,37 @@ def health() -> dict:
     return {"status": "ok"}
 
 
+# asyncio only holds a *weak* reference to a task's future — without
+# something else keeping a strong reference, a background task can be
+# garbage-collected mid-execution (a documented asyncio gotcha). This set
+# is that strong reference; each task removes itself once done.
+_background_tasks: set[asyncio.Task] = set()
+
+
+def _log_background_task_failure(task: asyncio.Task) -> None:
+    _background_tasks.discard(task)
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.error("Background update processing failed", exc_info=exc)
+
+
 @app.post("/telegram/webhook")
 async def telegram_webhook(request: Request) -> dict:
     """Receives pushed updates from Telegram when TELEGRAM_WEBHOOK_URL is
     set (see the lifespan above). The secret_token header is set by
     Telegram itself on every genuine webhook call — verifying it stops
     randoms from POSTing forged updates to this endpoint.
+
+    Acknowledges immediately and processes the update as a background task
+    rather than awaiting it: a real import (thousands of messages, over a
+    real network DB) can take well past Telegram's own webhook response
+    timeout (~60s). Awaiting it here meant Telegram gave up waiting,
+    retried by resending the *same* update, and we'd end up processing the
+    same file twice concurrently — which is exactly what caused duplicate-
+    key crashes and repeated bot replies in production. Acking fast makes
+    Telegram stop retrying, so each update is (normally) only processed once.
     """
     telegram_bot_app = getattr(request.app.state, "telegram_bot_app", None)
     if telegram_bot_app is None:
@@ -101,7 +127,9 @@ async def telegram_webhook(request: Request) -> dict:
 
     data = await request.json()
     update = Update.de_json(data, telegram_bot_app.bot)
-    await telegram_bot_app.process_update(update)
+    task = asyncio.create_task(telegram_bot_app.process_update(update))
+    _background_tasks.add(task)
+    task.add_done_callback(_log_background_task_failure)
     return {"ok": True}
 
 

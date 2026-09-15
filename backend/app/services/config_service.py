@@ -5,6 +5,7 @@ identities are always supplied by the user via the CLI or the Settings page.
 from __future__ import annotations
 
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -15,16 +16,27 @@ CONFIG_ROW_ID = 1
 
 def get_or_create_config(db: Session) -> AppConfig:
     cfg = db.get(AppConfig, CONFIG_ROW_ID)
-    if cfg is None:
-        cfg = AppConfig(
-            id=CONFIG_ROW_ID,
-            timezone=settings.default_timezone,
-            grouping_window_minutes=settings.default_grouping_window_minutes,
-            session_gap_hours=settings.default_session_gap_hours,
-            min_sample_size=settings.default_min_sample_size,
-        )
-        db.add(cfg)
+    if cfg is not None:
+        return cfg
+
+    cfg = AppConfig(
+        id=CONFIG_ROW_ID,
+        timezone=settings.default_timezone,
+        grouping_window_minutes=settings.default_grouping_window_minutes,
+        session_gap_hours=settings.default_session_gap_hours,
+        min_sample_size=settings.default_min_sample_size,
+    )
+    db.add(cfg)
+    try:
         db.commit()
+    except IntegrityError:
+        # Another concurrent request (different thread/session) won the
+        # race to create the single config row first — this is expected
+        # under concurrency (e.g. two webhook deliveries for a brand-new
+        # tenant), not an error: just use the row it created.
+        db.rollback()
+        cfg = db.get(AppConfig, CONFIG_ROW_ID)
+    else:
         db.refresh(cfg)
     return cfg
 

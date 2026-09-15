@@ -73,6 +73,18 @@ logger = logging.getLogger("analyzer-bot")
 
 LANGUAGE_LABELS = {"en": "English", "uz": "O'zbekcha"}
 
+# Serializes import/analysis for a given tenant. Webhook acking fast (see
+# app/main.py) stops Telegram from redelivering the same update and racing
+# with itself, but this is a second line of defense against any duplicate
+# processing — e.g. a user genuinely sending the same file twice in a row.
+_tenant_locks: dict[str, asyncio.Lock] = {}
+
+
+def _lock_for_tenant(tenant_id: str) -> asyncio.Lock:
+    if tenant_id not in _tenant_locks:
+        _tenant_locks[tenant_id] = asyncio.Lock()
+    return _tenant_locks[tenant_id]
+
 
 def _tenant_id_for(update: Update) -> str:
     return str(update.effective_user.id)
@@ -234,7 +246,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             tmp_path = Path(tmp.name)
         try:
             await tg_file.download_to_drive(custom_path=str(tmp_path))
-            outcome = await asyncio.to_thread(_process, tmp_path)
+            async with _lock_for_tenant(_tenant_id_for(update)):
+                outcome = await asyncio.to_thread(_process, tmp_path)
 
             if outcome["kind"] == "invalid_json":
                 await status.edit_text(t(lang, "invalid_json"))
@@ -307,7 +320,8 @@ async def handle_pick_me(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         finally:
             db.close()
 
-    outcome = await asyncio.to_thread(_work)
+    async with _lock_for_tenant(_tenant_id_for(update)):
+        outcome = await asyncio.to_thread(_work)
     lang = outcome["lang"]
     if outcome["kind"] == "error":
         await query.edit_message_text(t(lang, "pick_me_error"))

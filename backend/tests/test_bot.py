@@ -106,6 +106,39 @@ def test_upload_falls_back_to_manual_pick_when_id_unmatched(isolated_tenants):
         db.close()
 
 
+def test_concurrent_uploads_for_same_tenant_do_not_race(isolated_tenants):
+    """Regression test for the production outage: Telegram redelivering an
+    update whose response arrived too late used to cause two overlapping
+    handle_document runs for the same tenant to race on wipe-then-insert,
+    crashing with a duplicate-key IntegrityError. The per-tenant asyncio
+    lock in handle_document must serialize them instead.
+    """
+    update1, context1, status1 = _make_update(telegram_user_id=1000, file_path=FIXTURE)
+    update2, context2, status2 = _make_update(telegram_user_id=1000, file_path=FIXTURE)
+
+    async def _run_both():
+        await asyncio.gather(
+            handle_document(update1, context1),
+            handle_document(update2, context2),
+        )
+
+    asyncio.run(_run_both())
+
+    # neither run should have hit the generic error path (which is what a
+    # duplicate-key crash would have produced)
+    for status in (status1, status2):
+        final_text = status.edit_text.call_args.args[0]
+        assert "went wrong" not in final_text.lower(), final_text
+
+    db = get_session_for_tenant("1000")
+    try:
+        # wipe-then-insert ran twice, serialized — still exactly one copy
+        # of each message, not a crash and not double-counted
+        assert db.query(Message).count() == 6
+    finally:
+        db.close()
+
+
 def test_upload_rejects_oversized_file(isolated_tenants):
     update, context, _ = _make_update(telegram_user_id=1000, file_path=FIXTURE)
     update.message.document.file_size = 25 * 1024 * 1024  # over the 20MB cap

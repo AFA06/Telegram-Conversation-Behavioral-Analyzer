@@ -40,7 +40,7 @@ pytestmark = pytest.mark.skipif(not _postgres_reachable(), reason=f"No Postgres 
 # each test so leftover schemas from a previous run (the Postgres
 # container persists state across pytest invocations, unlike SQLite's
 # tmp_path) never cause spurious collisions like duplicate-key errors.
-_TEST_TENANT_IDS = ("pg_test_a", "pg_test_b", "pg_test_migration", "pg_test_data")
+_TEST_TENANT_IDS = ("pg_test_a", "pg_test_b", "pg_test_migration", "pg_test_data", "pg_test_race")
 
 
 def _drop_test_schemas():
@@ -187,5 +187,40 @@ def test_postgres_tenant_analysis_uses_correct_schema_not_raw_sql(postgres_tenan
         months = monthly_trends(db=db)
         assert len(months) == 1
         assert months[0]["total_messages"] == 6
+    finally:
+        db.close()
+
+
+def test_postgres_concurrent_first_contact_does_not_race(postgres_tenant_backend):
+    """Regression test for a real production crash: multiple threads (the
+    bot runs its DB work via asyncio.to_thread, i.e. real OS threads)
+    hitting a brand-new tenant at the same moment used to race on both
+    schema/table creation (CREATE TABLE from two threads at once) and the
+    single-row AppConfig get-or-create (both see no row, both INSERT id=1).
+    Runs 8 concurrent "first contact" attempts against one new tenant and
+    requires all of them to succeed with exactly one config row at the end.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.database import get_session_for_tenant
+    from app.models import AppConfig
+    from app.services.config_service import get_or_create_config
+
+    def _first_contact() -> str:
+        db = get_session_for_tenant("pg_test_race")
+        try:
+            cfg = get_or_create_config(db)
+            return cfg.timezone
+        finally:
+            db.close()
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(lambda _: _first_contact(), range(8)))
+
+    assert all(r == "Asia/Tashkent" for r in results)
+
+    db = get_session_for_tenant("pg_test_race")
+    try:
+        assert db.query(AppConfig).count() == 1
     finally:
         db.close()

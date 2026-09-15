@@ -1,4 +1,5 @@
 import re
+import threading
 from collections.abc import Generator
 from pathlib import Path
 
@@ -89,6 +90,14 @@ _TENANT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _tenant_engines: dict[str, Engine] = {}
 _tenant_sessionmakers: dict[str, sessionmaker] = {}
 _shared_postgres_engine: Engine | None = None
+# Bot handlers (and, in general, any concurrent request) run their DB work
+# via asyncio.to_thread, i.e. on real OS threads, not just concurrent
+# coroutines on one event loop — so a plain "if tenant_id not in cache"
+# check is a genuine TOCTOU race: two threads seeing the same brand-new
+# tenant simultaneously both proceed to CREATE TABLE, and the loser gets
+# "table already exists". A threading.Lock (not asyncio.Lock, which only
+# guards a single event loop) with double-checked locking fixes this.
+_tenant_engine_lock = threading.Lock()
 
 
 def _get_shared_postgres_engine() -> Engine:
@@ -143,9 +152,11 @@ def get_engine_for_tenant(tenant_id: str) -> Engine:
         return engine
 
     if tenant_id not in _tenant_engines:
-        tenant_engine = _build_tenant_engine(tenant_id)
-        _tenant_engines[tenant_id] = tenant_engine
-        _tenant_sessionmakers[tenant_id] = sessionmaker(bind=tenant_engine, autoflush=False, autocommit=False)
+        with _tenant_engine_lock:
+            if tenant_id not in _tenant_engines:  # re-check: another thread may have just built it
+                tenant_engine = _build_tenant_engine(tenant_id)
+                _tenant_engines[tenant_id] = tenant_engine
+                _tenant_sessionmakers[tenant_id] = sessionmaker(bind=tenant_engine, autoflush=False, autocommit=False)
 
     return _tenant_engines[tenant_id]
 
