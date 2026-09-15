@@ -1,0 +1,23 @@
+name: Keep Render service warm
+
+# Render's free tier sleeps the service after ~15 minutes idle, and cold
+# start (pulling the image, importing pandas/numpy, connecting to
+# Postgres) takes longer than Telegram allows for webhook delivery — so a
+# cold service silently misses the first message sent to it. This pings
+# the health endpoint often enough that it never fully sleeps.
+#
+# GitHub disables scheduled workflows after 60 days with no repo activity
+# — a commit (even unrelated) resets that clock, so this is "free forever"
+# as long as the repo stays at least occasionally active.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping health endpoint
+        run: curl -sf --max-time 30 https://chatpulse-ikby.onrender.com/api/health
