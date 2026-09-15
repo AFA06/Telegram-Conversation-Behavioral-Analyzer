@@ -5,6 +5,7 @@ real against the synthetic fixture.
 """
 import asyncio
 import shutil
+import time
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -202,6 +203,41 @@ def test_pick_me_shows_waiting_toast_instead_of_silence_when_locked(isolated_ten
         await task
 
     asyncio.run(_run())
+
+
+def test_hung_import_releases_the_lock_instead_of_deadlocking_forever(isolated_tenants, monkeypatch):
+    """Regression test for the exact production report: a tenant got
+    permanently stuck seeing "still working on your previous upload" no
+    matter what they did afterward, because a DB call never returned and
+    the per-tenant lock (correctly) never got released. Simulates a
+    call that hangs forever and requires the timeout to cut it off, show
+    a clear message, and actually release the lock for the next request.
+    """
+    import bot.main as bot_main
+
+    monkeypatch.setattr(bot_main, "_PROCESSING_TIMEOUT_SECONDS", 0.1)
+    monkeypatch.setattr(bot_main, "import_export_file", lambda *a, **k: time.sleep(20))
+
+    update, context, status = _make_update(telegram_user_id=6001, file_path=FIXTURE)
+
+    # Deliberately using a manually-managed loop, not asyncio.run(): the
+    # whole point of this fix is that the hung call keeps running
+    # orphaned in the background instead of blocking anything further, but
+    # asyncio.run()'s own cleanup (shutdown_default_executor, Python 3.9+)
+    # blocks waiting for every outstanding executor thread to finish —
+    # which would make the *test* hang for 20s despite the code under test
+    # behaving correctly. Skipping loop.close() avoids that entirely.
+    loop = asyncio.new_event_loop()
+    started = time.monotonic()
+    loop.run_until_complete(handle_document(update, context))
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 5, f"handler took {elapsed}s — the timeout did not cut off the hung call"
+    final_text = status.edit_text.call_args.args[0]
+    assert "too long" in final_text or "uzoq davom etdi" in final_text, final_text
+
+    lock = bot_main._lock_for_tenant("6001")
+    assert not lock.locked(), "lock was left held after the timeout — this is the exact reported deadlock"
 
 
 def test_upload_rejects_oversized_file(isolated_tenants):

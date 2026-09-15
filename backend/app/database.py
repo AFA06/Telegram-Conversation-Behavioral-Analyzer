@@ -108,7 +108,19 @@ def _get_shared_postgres_engine() -> Engine:
         # pool_pre_ping matters here: a free-tier Postgres (e.g. Neon) can
         # suspend itself after idling and drop old connections — pre_ping
         # detects that and transparently reconnects instead of erroring.
-        _shared_postgres_engine = create_engine(settings.postgres_url, pool_pre_ping=True)
+        #
+        # connect_timeout / statement_timeout are not optional: without
+        # them, a hung TCP connect or a wedged query blocks forever. In the
+        # bot, that DB call runs inside a per-tenant asyncio.Lock (so a
+        # duplicate request can't race a real import) — a call that never
+        # returns means the lock never releases, permanently locking that
+        # user out of the bot with no way to recover short of a redeploy.
+        # These bound the damage to a normal, user-visible error instead.
+        _shared_postgres_engine = create_engine(
+            settings.postgres_url,
+            pool_pre_ping=True,
+            connect_args={"connect_timeout": 10, "options": "-c statement_timeout=30000"},
+        )
     return _shared_postgres_engine
 
 

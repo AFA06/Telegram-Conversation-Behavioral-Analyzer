@@ -73,6 +73,13 @@ logger = logging.getLogger("analyzer-bot")
 
 LANGUAGE_LABELS = {"en": "English", "uz": "O'zbekcha"}
 
+# Upper bound on how long a single locked operation may run before we give
+# up and release the lock anyway. Generously larger than database.py's own
+# connect/statement timeouts (10s / 30s) — those are the primary defense,
+# this is the backstop that guarantees a tenant can never be locked out of
+# the bot permanently, no matter what hangs underneath.
+_PROCESSING_TIMEOUT_SECONDS = 90
+
 # Serializes import/analysis for a given tenant. Webhook acking fast (see
 # app/main.py) stops Telegram from redelivering the same update and racing
 # with itself, but this is a second line of defense against any duplicate
@@ -88,6 +95,31 @@ def _lock_for_tenant(tenant_id: str) -> asyncio.Lock:
 
 def _tenant_id_for(update: Update) -> str:
     return str(update.effective_user.id)
+
+
+async def _run_with_timeout(fn, *args):
+    """Runs a blocking function in a thread, bounded by
+    ``_PROCESSING_TIMEOUT_SECONDS``. Raises ``asyncio.TimeoutError`` if it's
+    not done in time.
+
+    This is NOT the same as ``asyncio.wait_for(asyncio.to_thread(fn), ...)``
+    — that combination looks like a timeout but isn't one: on timeout,
+    ``wait_for`` cancels the awaited future and then *waits for that
+    cancellation to actually complete* before returning. A thread-pool
+    future that's already running can't be cancelled (Python can't
+    interrupt a running OS thread), so ``wait_for`` ends up waiting for the
+    thread to finish anyway — indefinitely, for a genuinely hung call. This
+    was verified directly: wrapped a `time.sleep(999)` call exactly that
+    way with a 0.5s timeout and it never returned.
+
+    ``asyncio.shield()`` fixes this: it lets ``wait_for`` give up waiting at
+    the deadline while the orphaned thread keeps running independently in
+    the background (itself bounded by database.py's connect/statement
+    timeouts, not by us — we can only stop *waiting*, never *the thread*).
+    """
+    loop = asyncio.get_running_loop()
+    future = loop.run_in_executor(None, fn, *args)
+    return await asyncio.wait_for(asyncio.shield(future), timeout=_PROCESSING_TIMEOUT_SECONDS)
 
 
 def _db_for(update: Update) -> Session:
@@ -250,9 +282,20 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             if lock.locked():
                 await status.edit_text(t(lang, "still_processing"))
             async with lock:
-                outcome = await asyncio.to_thread(_process, tmp_path)
+                # A hung DB call (network partition, a wedged connection)
+                # must never hold this lock forever — that would lock the
+                # tenant out of the bot permanently, with no recovery short
+                # of a redeploy. The timeout guarantees release either way;
+                # database.py's connect/statement timeouts are the primary
+                # defense, this is the backstop for anything they miss.
+                try:
+                    outcome = await _run_with_timeout(_process, tmp_path)
+                except asyncio.TimeoutError:
+                    outcome = {"kind": "timeout"}
 
-            if outcome["kind"] == "invalid_json":
+            if outcome["kind"] == "timeout":
+                await status.edit_text(t(lang, "processing_timeout"))
+            elif outcome["kind"] == "invalid_json":
                 await status.edit_text(t(lang, "invalid_json"))
             elif outcome["kind"] == "group_rejected":
                 await status.edit_text(t(lang, "group_export_rejected"))
@@ -299,27 +342,30 @@ async def handle_pick_me(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     me_id = query.data.split(":", 1)[1]
     detected = context.chat_data.get("detected_participants", [])
 
+    def _get_lang() -> str:
+        db = _db_for(update)
+        try:
+            return _resolve_language(db, update)
+        finally:
+            db.close()
+
+    lang = await asyncio.to_thread(_get_lang)
+
     lock = _lock_for_tenant(_tenant_id_for(update))
     if lock.locked():
         # Answer with a visible toast rather than silence — this is exactly
         # the "I pressed the button and nothing happened" symptom without it.
-        db = _db_for(update)
-        try:
-            lang_for_toast = _resolve_language(db, update)
-        finally:
-            db.close()
-        await query.answer(text=t(lang_for_toast, "still_processing"), show_alert=True)
+        await query.answer(text=t(lang, "still_processing"), show_alert=True)
     else:
         await query.answer()
 
     def _work() -> dict:
         db = _db_for(update)
         try:
-            lang = _resolve_language(db, update)
             mine = next((d for d in detected if d["sender_id"] == me_id), None)
             other = next((d for d in detected if d["sender_id"] != me_id), None)
             if not mine or not other:
-                return {"kind": "error", "lang": lang}
+                return {"kind": "error"}
 
             cfg = config_service.set_participants(
                 db,
@@ -331,13 +377,21 @@ async def handle_pick_me(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             cfg.timezone = settings.default_timezone
             db.commit()
             result = run_full_analysis(db)
-            return {"kind": "success", "lang": lang, "sessions": result["sessions"], "events": result["response_events"]}
+            return {"kind": "success", "sessions": result["sessions"], "events": result["response_events"]}
         finally:
             db.close()
 
     async with lock:
-        outcome = await asyncio.to_thread(_work)
-    lang = outcome["lang"]
+        # See the matching comment in handle_document — a hung DB call must
+        # never hold this lock forever.
+        try:
+            outcome = await _run_with_timeout(_work)
+        except asyncio.TimeoutError:
+            outcome = {"kind": "timeout"}
+
+    if outcome["kind"] == "timeout":
+        await query.edit_message_text(t(lang, "processing_timeout"))
+        return
     if outcome["kind"] == "error":
         await query.edit_message_text(t(lang, "pick_me_error"))
         return

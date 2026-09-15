@@ -86,6 +86,10 @@ _STRINGS: dict[str, dict[str, str]] = {
         "en": "Still working on your previous upload — this can take a moment, please wait…",
         "uz": "Avvalgi yuklamangiz ustida hali ishlamoqdamiz — bir oz vaqt olishi mumkin, iltimos kuting…",
     },
+    "processing_timeout": {
+        "en": "That took too long and was stopped. Please try again — if it keeps happening, the database may be slow to reach right now.",
+        "uz": "Bu juda uzoq davom etdi va to'xtatildi. Iltimos, qayta urinib ko'ring — agar bu takrorlansa, hozircha ma'lumotlar bazasiga ulanish sekin bo'lishi mumkin.",
+    },
     "file_too_large": {
         "en": "That file is too large (over 20MB). Try exporting without media.",
         "uz": "Fayl juda katta (20MB dan oshiq). Media fayllarsiz eksport qilib ko'ring.",
