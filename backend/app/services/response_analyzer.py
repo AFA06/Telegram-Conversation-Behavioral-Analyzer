@@ -141,10 +141,13 @@ def run_full_analysis(db: Session) -> dict:
         )
         for s in sessions
     ]
-    db.add_all(session_rows)
+    # bulk_save_objects(return_defaults=True) instead of add_all()+commit()+
+    # a per-row refresh() loop: the refresh loop was one extra round-trip
+    # per session, which adds up over a real network connection (a remote
+    # Postgres tenant, not instant local SQLite) — return_defaults populates
+    # generated ids in the same insert instead.
+    db.bulk_save_objects(session_rows, return_defaults=True)
     db.commit()
-    for row in session_rows:
-        db.refresh(row)
     session_starts = [s.start_ts for s in sessions]
 
     # --- bursts -> response events + unanswered bursts ---
@@ -202,8 +205,8 @@ def run_full_analysis(db: Session) -> dict:
                 )
             )
 
-    db.add_all(response_rows)
-    db.add_all(unanswered_rows)
+    db.bulk_save_objects(response_rows)
+    db.bulk_save_objects(unanswered_rows)
     db.commit()
 
     return {
