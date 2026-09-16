@@ -84,6 +84,7 @@ export default function Settings() {
       fd.append("file", file);
       const result = await api.post("/import", fd);
       participantsQuery.reload();
+      configQuery.reload(); // stale participant ids may have just been cleared server-side
       let text = `Imported ${result.valid_count} of ${result.imported_count} messages (${result.skipped_count} skipped). `;
       if (result.analysis) {
         text += `Analysis complete: ${result.analysis.sessions} sessions, ${result.analysis.response_events} response events.`;

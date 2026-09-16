@@ -1,0 +1,10 @@
+{
+  "name": "A Different Chat Entirely",
+  "type": "personal_chat",
+  "id": 555,
+  "messages": [
+    {"id": 1, "type": "message", "date": "2026-03-01T09:00:00", "date_unixtime": "1772614800", "from": "Me", "from_id": "user1000", "text": "Completely different conversation"},
+    {"id": 2, "type": "message", "date": "2026-03-01T09:05:00", "date_unixtime": "1772615100", "from": "Someone Else", "from_id": "user3000", "text": "Yep, brand new chat"},
+    {"id": 3, "type": "message", "date": "2026-03-02T10:00:00", "date_unixtime": "1772701200", "from": "Me", "from_id": "user1000", "text": "One more message"}
+  ]
+}

@@ -53,6 +53,64 @@ def test_health(client: TestClient):
     assert client.get("/api/health").json() == {"status": "ok"}
 
 
+def test_reimporting_a_different_conversation_fully_replaces_the_old_one(client: TestClient):
+    """Regression test reported directly by a user: sending a genuinely
+    different conversation after already having one imported still showed
+    the old data. Root cause: the import route blindly trusted the
+    *previous* import's me_user_id/other_user_id and ran analysis with
+    them — the new "other" person's messages silently resolved to role
+    "unknown" (excluded from every stat) while other_display_name kept
+    showing the *previous* conversation's participant. Fixed by
+    re-verifying the configured participants against every fresh import,
+    not just the first one, and clearing them (rather than silently
+    running analysis wrong) when they no longer match.
+    """
+    first = _import_sample(client)
+    assert first["valid_count"] == 6
+
+    overview_after_first = client.get("/api/overview").json()
+    assert overview_after_first["chat_name"] == "Synthetic Test Chat"
+    assert overview_after_first["total_messages"] == 6
+
+    second_fixture = Path(__file__).parent / "fixtures" / "second_export.json"
+    with second_fixture.open("rb") as f:
+        resp = client.post("/api/import", files={"file": ("second_export.json", f, "application/json")})
+    assert resp.status_code == 200, resp.text
+    second = resp.json()
+    assert second["valid_count"] == 3
+    # "user2000" (the old "other") isn't in this file at all -> the stale
+    # mapping is no longer valid, so this must NOT silently analyze wrong
+    assert second["participants_configured"] is False
+    assert second["analysis"] is None
+    assert {d["sender_id"] for d in second["detected_participants"]} == {"user1000", "user3000"}
+
+    overview_after_second = client.get("/api/overview").json()
+    assert overview_after_second["chat_name"] == "A Different Chat Entirely"
+    assert overview_after_second["total_messages"] == 3
+    # stale participant identity is cleared, not left pointing at the old chat
+    assert overview_after_second["other_display_name"] is None
+
+    # nothing from the first conversation survives
+    messages = client.get("/api/messages?limit=50").json()
+    assert messages["total"] == 3
+    all_text = " ".join(m["text"] or "" for m in messages["items"])
+    assert "Synthetic" not in all_text
+    assert "brand new chat" in all_text
+
+    # configuring the new pair (as the Settings page / bot would) then
+    # works correctly against the new data
+    resp = client.put(
+        "/api/config/participants",
+        json={"me_user_id": "user1000", "me_display_name": "Me", "other_user_id": "user3000", "other_display_name": "Someone Else"},
+    )
+    assert resp.status_code == 200
+    resp = client.post("/api/import/analyze")
+    assert resp.status_code == 200, resp.text
+    overview_final = client.get("/api/overview").json()
+    assert overview_final["other_display_name"] == "Someone Else"
+    assert overview_final["other_messages"] == 1
+
+
 def test_import_and_auto_analyze(client: TestClient):
     body = _import_sample(client)
     assert body["valid_count"] == 6  # 7 records, 1 service message skipped
@@ -221,7 +279,14 @@ def test_import_participants_endpoint(client: TestClient):
 
 def test_import_with_mismatched_participant_ids_reports_error_not_zeros(client: TestClient):
     """Regression test for the silent-zero bug: configuring ids that don't
-    match any sender must surface a clear error, not a fake all-zero report.
+    match any sender in the imported data must never silently run analysis
+    against them (which used to produce a fake all-zero report). The
+    import route now checks this proactively — before even attempting
+    analysis — and reports the mismatch by clearing the stale config and
+    returning the real detected senders, rather than attempting analysis
+    and catching the resulting error (still covered directly for
+    run_full_analysis itself in test_response_analyzer.py, and for the
+    standalone /api/import/analyze endpoint below).
     """
     client.put(
         "/api/config/participants",
@@ -230,5 +295,26 @@ def test_import_with_mismatched_participant_ids_reports_error_not_zeros(client: 
     with FIXTURE.open("rb") as f:
         resp = client.post("/api/import", files={"file": ("sample_export.json", f, "application/json")})
     body = resp.json()
+    assert body["participants_configured"] is False
     assert body["analysis"] is None
-    assert "don't match any imported message senders" in body["analysis_error"]
+    assert body["analysis_error"] is None  # no analysis was even attempted
+    assert {d["sender_id"] for d in body["detected_participants"]} == {"user1000", "user2000"}
+
+    cfg = client.get("/api/config").json()
+    assert cfg["me_user_id"] is None
+    assert cfg["other_user_id"] is None
+
+
+def test_reanalyze_endpoint_still_reports_mismatched_ids_as_a_clear_error(client: TestClient):
+    """The standalone /api/import/analyze endpoint (e.g. called after
+    manually editing Settings) is a different code path from import_file
+    and must still surface run_full_analysis's ValueError directly.
+    """
+    _import_sample(client)
+    client.put(
+        "/api/config/participants",
+        json={"me_user_id": "totally-wrong-id", "me_display_name": "Me", "other_user_id": "also-wrong", "other_display_name": "Them"},
+    )
+    resp = client.post("/api/import/analyze")
+    assert resp.status_code == 400
+    assert "don't match any imported message senders" in resp.json()["detail"]

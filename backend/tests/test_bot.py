@@ -19,6 +19,7 @@ from app.models import AppConfig, ConversationSession, Message
 from bot.main import handle_document, handle_pick_me
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_export.json"
+SECOND_FIXTURE = Path(__file__).parent / "fixtures" / "second_export.json"
 
 
 @pytest.fixture()
@@ -238,6 +239,42 @@ def test_hung_import_releases_the_lock_instead_of_deadlocking_forever(isolated_t
 
     lock = bot_main._lock_for_tenant("6001")
     assert not lock.locked(), "lock was left held after the timeout — this is the exact reported deadlock"
+
+
+def test_reimporting_different_conversation_via_bot_updates_participants_correctly(isolated_tenants):
+    """The bot's own flow (unlike the plain /api/import route, which had a
+    real bug fixed alongside this test — see
+    test_reimporting_a_different_conversation_fully_replaces_the_old_one in
+    test_api_integration.py) always re-detects participants fresh on every
+    upload rather than trusting a previous import's config, so this must
+    already work correctly — confirming that directly, since it's the
+    user's actual real-world path (Telegram, not the web Settings page).
+    """
+    update1, context1, _ = _make_update(telegram_user_id=1000, file_path=FIXTURE)
+    asyncio.run(handle_document(update1, context1))
+
+    db = get_session_for_tenant("1000")
+    try:
+        cfg = db.query(AppConfig).one()
+        assert cfg.other_user_id == "user2000"
+        assert cfg.other_display_name == "Them"
+    finally:
+        db.close()
+
+    update2, context2, status2 = _make_update(telegram_user_id=1000, file_path=SECOND_FIXTURE)
+    asyncio.run(handle_document(update2, context2))
+
+    final_text = status2.edit_text.call_args.args[0]
+    assert "went wrong" not in final_text.lower(), final_text
+
+    db = get_session_for_tenant("1000")
+    try:
+        cfg = db.query(AppConfig).one()
+        assert cfg.other_user_id == "user3000"
+        assert cfg.other_display_name == "Someone Else"
+        assert db.query(Message).count() == 3
+    finally:
+        db.close()
 
 
 def test_upload_rejects_oversized_file(isolated_tenants):
