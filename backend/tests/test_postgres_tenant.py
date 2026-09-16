@@ -224,3 +224,22 @@ def test_postgres_concurrent_first_contact_does_not_race(postgres_tenant_backend
         assert db.query(AppConfig).count() == 1
     finally:
         db.close()
+
+
+def test_postgres_statement_timeout_is_actually_applied(postgres_tenant_backend):
+    """Regression test for a critical production bug: statement_timeout
+    was first added via connect_args={"options": "-c statement_timeout=..."},
+    which looks correct locally but broke EVERY connection outright against
+    Neon's pooled endpoint ("unsupported startup parameter"). Fixed via a
+    post-connect SQL command (a SQLAlchemy 'connect' event) instead of a
+    startup-packet option. This confirms the timeout is genuinely in
+    effect, not just that connecting no longer fails.
+    """
+    from app.database import get_session_for_tenant
+
+    db = get_session_for_tenant("pg_test_a")
+    try:
+        value = db.execute(text("SHOW statement_timeout")).scalar()
+        assert value == "30s"
+    finally:
+        db.close()

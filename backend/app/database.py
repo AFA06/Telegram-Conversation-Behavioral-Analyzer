@@ -3,7 +3,7 @@ import threading
 from collections.abc import Generator
 from pathlib import Path
 
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
@@ -116,11 +116,40 @@ def _get_shared_postgres_engine() -> Engine:
         # returns means the lock never releases, permanently locking that
         # user out of the bot with no way to recover short of a redeploy.
         # These bound the damage to a normal, user-visible error instead.
+        #
+        # statement_timeout is set via a plain SQL command after connecting
+        # (below), NOT via connect_args={"options": "-c statement_timeout=..."}
+        # — that was tried first and broke every single connection outright
+        # in production: Neon's pooled endpoint (PgBouncer) rejects
+        # arbitrary startup-packet options with "unsupported startup
+        # parameter", which isn't a case create_engine() can fail fast on
+        # (it only surfaces on first real connection). Caught by directly
+        # reproducing the user's exact failure against the real database
+        # rather than trusting the local Docker Postgres test, which has no
+        # pooler and never would have shown this.
         _shared_postgres_engine = create_engine(
             settings.postgres_url,
             pool_pre_ping=True,
-            connect_args={"connect_timeout": 10, "options": "-c statement_timeout=30000"},
+            connect_args={"connect_timeout": 10},
         )
+
+        @event.listens_for(_shared_postgres_engine, "connect")
+        def _set_statement_timeout(dbapi_connection, connection_record) -> None:
+            # psycopg2 connections default to autocommit=False, so this SET
+            # sits inside an implicitly-opened, never-committed transaction
+            # unless explicitly committed here. Left uncommitted, it caused
+            # a real, reproducible bug: pool_pre_ping's do_ping() toggles
+            # dbapi_connection.autocommit on every checkout, which psycopg2
+            # refuses ("set_session cannot be used inside a transaction")
+            # while a transaction is open — SQLAlchemy then invalidates and
+            # replaces the connection, and the timeout silently never ends
+            # up durably applied (reproduced locally: SHOW statement_timeout
+            # came back '0' instead of '30s').
+            cursor = dbapi_connection.cursor()
+            cursor.execute("SET statement_timeout = 30000")
+            cursor.close()
+            dbapi_connection.commit()
+
     return _shared_postgres_engine
 
 
