@@ -156,7 +156,7 @@ _FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 _INDEX_HTML = _FRONTEND_DIST / "index.html"
 
 
-@app.get("/{full_path:path}")
+@app.api_route("/{full_path:path}", methods=["GET", "HEAD"])
 async def spa(full_path: str) -> FileResponse:
     """Serves the SPA shell for any path that isn't an API route or a real
     built file — React Router handles the actual routing client-side from

@@ -68,6 +68,16 @@ def test_real_built_asset_is_served_directly_not_as_spa_shell(fake_frontend_buil
         assert "console.log" in resp.text
 
 
+def test_head_request_is_supported_not_405(fake_frontend_build):
+    """Render's own platform health probe sent HEAD / — a GET-only route
+    returned 405, which risks the platform treating a genuinely healthy
+    deploy as unhealthy.
+    """
+    with TestClient(app) as client:
+        resp = client.request("HEAD", "/")
+        assert resp.status_code == 200
+
+
 def test_api_and_telegram_paths_are_not_swallowed_by_the_spa_fallback(fake_frontend_build):
     with TestClient(app) as client:
         assert client.get("/api/totally-made-up-endpoint").status_code == 404
