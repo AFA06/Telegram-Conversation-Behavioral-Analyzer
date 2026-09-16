@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from app.config import settings
 from app.database import init_db
@@ -147,11 +148,38 @@ app.include_router(bot_routes.router, prefix="/api/bot", tags=["bot"])
 # Serves the built frontend (frontend/dist) as static files when present,
 # so a single deployed service can host both the API and the Mini App /
 # dashboard on one origin (no CORS needed in production). In local dev,
-# frontend/dist doesn't exist — Vite's own dev server handles the frontend
-# instead, proxying /api to this backend (see frontend/vite.config.js) —
-# so this mount is a pure no-op locally.
+# frontend/dist doesn't exist yet — Vite's own dev server handles the
+# frontend instead, proxying /api to this backend (see vite.config.js) —
+# these routes just 404 in that case (checked per-request, not at import
+# time, so the app doesn't need a build present just to start or be tested).
 _FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
-if _FRONTEND_DIST.is_dir():
-    from fastapi.staticfiles import StaticFiles
+_INDEX_HTML = _FRONTEND_DIST / "index.html"
 
-    app.mount("/", StaticFiles(directory=_FRONTEND_DIST, html=True), name="frontend")
+
+@app.get("/{full_path:path}")
+async def spa(full_path: str) -> FileResponse:
+    """Serves the SPA shell for any path that isn't an API route or a real
+    built file — React Router handles the actual routing client-side from
+    there.
+
+    Without this, only "/" ever worked: a plain StaticFiles(html=True)
+    mount has no concept of client-side routes, so a direct request for
+    e.g. "/activity" 404s. That 404 is exactly what a user sees as "this
+    section doesn't work" — Telegram's Mini App WebView reloads at
+    whatever path is currently open (not always "/") when the app is
+    backgrounded and reopened, which is a routine, frequent event, not an
+    edge case.
+
+    index.html is explicitly never cached: it's what points the
+    browser/WebView at the current hashed JS bundle. A stale cached copy
+    pointing at an old bundle is exactly what makes a real, live fix look
+    like "it's still showing the old version" after a deploy.
+    """
+    if full_path.startswith("api/") or full_path.startswith("telegram/"):
+        raise HTTPException(status_code=404)
+    candidate = _FRONTEND_DIST / full_path
+    if full_path and candidate.is_file():
+        return FileResponse(candidate)
+    if _INDEX_HTML.is_file():
+        return FileResponse(_INDEX_HTML, headers={"Cache-Control": "no-store"})
+    raise HTTPException(status_code=404)
