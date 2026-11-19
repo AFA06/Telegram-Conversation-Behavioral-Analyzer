@@ -290,7 +290,7 @@ def test_import_with_mismatched_participant_ids_reports_error_not_zeros(client: 
     """
     client.put(
         "/api/config/participants",
-        json={"me_user_id": "938613594", "me_display_name": "Me", "other_user_id": "6424173522", "other_display_name": "Jayrona"},
+        json={"me_user_id": "100000001", "me_display_name": "Me", "other_user_id": "2000000002", "other_display_name": "Bob"},
     )
     with FIXTURE.open("rb") as f:
         resp = client.post("/api/import", files={"file": ("sample_export.json", f, "application/json")})

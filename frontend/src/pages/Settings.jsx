@@ -143,7 +143,7 @@ export default function Settings() {
 
       <Card
         title="2. Who is who"
-        note="Identities are never guessed — pick from the senders actually found in your export (Telegram ids are usually prefixed, e.g. 'user938613594', not bare '938613594')."
+        note="Identities are never guessed — pick from the senders actually found in your export (Telegram ids are usually prefixed, e.g. 'user100000001', not bare '100000001')."
       >
         {participantsQuery.data?.length > 0 && (
           <div style={{ marginBottom: "1rem" }}>
@@ -180,7 +180,7 @@ export default function Settings() {
           <div>
             <div className="form-field">
               <label>My user id</label>
-              <input value={form.me_user_id || ""} onChange={(e) => update("me_user_id", e.target.value)} placeholder="e.g. 938613594" />
+              <input value={form.me_user_id || ""} onChange={(e) => update("me_user_id", e.target.value)} placeholder="e.g. 100000001" />
             </div>
             <div className="form-field">
               <label>My display name</label>
@@ -190,7 +190,7 @@ export default function Settings() {
           <div>
             <div className="form-field">
               <label>Other person's user id</label>
-              <input value={form.other_user_id || ""} onChange={(e) => update("other_user_id", e.target.value)} placeholder="e.g. 6424173522" />
+              <input value={form.other_user_id || ""} onChange={(e) => update("other_user_id", e.target.value)} placeholder="e.g. 2000000002" />
             </div>
             <div className="form-field">
               <label>Other person's display name</label>

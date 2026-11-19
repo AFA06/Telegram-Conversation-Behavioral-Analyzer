@@ -1,13 +1,37 @@
-# Telegram Conversation Behavioral Analyzer
+# ChatPulse: Telegram Conversation Analyzer 📊
 
-A local-first application that analyzes a Telegram conversation export between
-two people: when each person tends to message, how quickly the other person
-has historically responded, recurring activity windows, conversation
-sessions, and how communication patterns have changed over time.
+**See the rhythm of a conversation: when each person is active, how fast they usually reply, and how that changes over time. Built privacy-first, so message text never leaves your control.**
 
-**Everything runs on your machine.** No message content is ever sent to
-OpenAI, Anthropic, Google, or any other external service. See
-[Privacy](#privacy) below.
+Runs **locally** (CLI + web dashboard) or as a **Telegram bot with a Mini App dashboard**, where each user gets their own isolated database.
+
+![ChatPulse dashboard on desktop and phone](docs/screenshots/cover.jpg)
+
+<sub>All screenshots use a synthetic conversation between two fictional people. No real chat data.</sub>
+
+## Features
+
+- **Import a Telegram export** (`result.json`), including nested rich-text messages, via the dashboard, the CLI, or by sending the file to the bot.
+- **Activity**: messages by hour and weekday, a 7×24 heatmap, and the most active recurring time windows.
+- **Response times**: fastest, median, percentiles and longest reply, broken down by weekday and hour. Every number carries a **confidence label based on sample size**, and buckets with too little data say so instead of guessing.
+- **Conversations**: automatic session detection (configurable gap) and grouping of message bursts.
+- **Trends**: monthly activity, median reply time over time, and period-to-period comparisons.
+- **Telegram bot** in Uzbek and English: `/overview`, `/fastest`, `/slowest`, `/sessions`, `/windows`, and `/ask`, which answers questions from the computed statistics only, with no LLM involved.
+- **Telegram Mini App**: the full dashboard opens inside Telegram, with no separate login.
+
+## Screenshots
+
+| Overview | Activity |
+|---|---|
+| ![Overview](docs/screenshots/overview.jpg) | ![Activity](docs/screenshots/activity.jpg) |
+| **Response times** | **Trends** |
+| ![Response times](docs/screenshots/responses.jpg) | ![Trends](docs/screenshots/trends.jpg) |
+
+<p align="center">
+  <img src="docs/screenshots/m-overview.jpg" width="250" alt="Phone: overview" />
+  &nbsp;
+  <img src="docs/screenshots/m-activity.jpg" width="250" alt="Phone: activity" />
+</p>
+
 
 ## What this is (and isn't)
 
@@ -19,49 +43,6 @@ see language like *"historically active"*, *"historically responsive"*, and
 you"* or *"she is free at this time"*. The system cannot know intent, and
 doesn't pretend to.
 
-## Architecture
-
-```
-Telegram Export (JSON)
-      ↓
-Python Importer (backend/app/services/telegram_parser.py)
-      ↓
-Normalized SQLite Database
-      ↓
-Analysis Engine (activity / response-time / session analyzers)
-      ↓
-FastAPI REST API
-      ↓
-React + Vite Dashboard
-      ↓
-Optional Telegram Bot (reads only computed statistics)
-```
-
-## Project structure
-
-```
-telegram chat analizer/
-├── backend/
-│   ├── app/
-│   │   ├── main.py          FastAPI app
-│   │   ├── config.py        Settings (env-driven, all local)
-│   │   ├── database.py      SQLAlchemy engine/session
-│   │   ├── models.py        ORM models
-│   │   ├── schemas.py       Pydantic request models
-│   │   ├── routes/          One module per API area
-│   │   ├── services/        Parsing + analysis logic (pure, unit-tested)
-│   │   └── utils/           Time & formatting helpers
-│   ├── analyzer/            `python -m analyzer ...` CLI
-│   ├── bot/                 Optional Telegram bot (Phase 7)
-│   └── tests/                Pytest suite (synthetic data only)
-├── frontend/                 React + Vite dashboard
-├── data/                     Your imported export & SQLite DB (gitignored)
-└── scripts/
-```
-
-> Note on the spec's suggested filenames: `routes/import.py` isn't valid
-> Python (`import` is a reserved keyword), so that route lives in
-> `routes/imports.py` instead. Functionally identical.
 
 ## Privacy
 
@@ -76,6 +57,45 @@ telegram chat analizer/
 - The public GitHub repo never contains anyone's Telegram user ID, name, or
   message content. You configure your own participants locally (Settings
   page or CLI), and that configuration stays in your local database.
+
+
+## Architecture
+
+```
+Telegram export (JSON) ──► Python importer ──► normalized database (SQLite locally / Postgres in the cloud)
+                                                        │
+                                       analysis engine: activity · response times · sessions · trends
+                                                        │
+                                                   FastAPI REST API
+                                                   │            │
+                                       React + Vite dashboard   Telegram bot (+ Mini App)
+```
+
+## Engineering highlights
+
+- **Multi-tenant with database-level isolation.** In cloud mode every Telegram user gets their own
+  Postgres schema (`tenant_<telegram_user_id>`) on a shared Neon database, so one user can never
+  read another's data, even through a bug in application code. Locally it uses one SQLite file per tenant.
+- **Telegram-native auth.** The Mini App verifies Telegram's signed `initData` server-side with
+  HMAC-SHA256 (`backend/app/auth.py`). The webhook checks Telegram's secret-token header before
+  processing anything.
+- **Production hardening.** I diagnosed and fixed real outages in production: bot handlers blocking the
+  shared event loop, duplicate processing when the webhook acknowledged too late, a lock deadlock
+  (fixed with bounded Postgres timeouts and a real asyncio timeout), and a connection pooler rejecting
+  a startup parameter.
+- **Correct time handling.** All analysis runs in the conversation's configured timezone, not UTC, and
+  there's a regression test that guards it.
+- **Honest statistics.** Medians over averages, explicit confidence labels and neutral wording
+  ("historically responsive"), because the data shows timing, not intent.
+- **About 90 automated tests** (pytest) across the parser, analyzers, timezones, multi-tenant Postgres,
+  migrations, the bot, i18n and a full API integration pass, all on synthetic fixtures.
+- **Ships as one Docker image**: the API serves the built React app, with Render + Neon free-tier deploy
+  notes in [DEPLOY.md](DEPLOY.md).
+
+## Tech
+
+**Python** · **FastAPI** · **SQLAlchemy** · **Pandas** · **PostgreSQL (Neon)** / **SQLite** · **React** · **Vite** ·
+**Telegram Bot API** + **Mini Apps** · **pytest** · **Docker** · GitHub Actions
 
 ## Requirements
 
@@ -128,18 +148,18 @@ python -m analyzer import /path/to/result.json --timezone Asia/Tashkent
 
 # 2. See the EXACT sender ids Telegram used in your export
 python -m analyzer participants
-#   user938613594   Alice    4102 messages
-#   user6424173522  Jayrona  4319 messages
+#   user100000001   Alice    4102 messages
+#   user2000000002  Bob  4319 messages
 
 # 3. Configure with those exact ids, then analyze
-python -m analyzer configure --me-id user938613594 --me-name "Me" \
-  --other-id user6424173522 --other-name "Jayrona"
+python -m analyzer configure --me-id user100000001 --me-name "Me" \
+  --other-id user2000000002 --other-name "Bob"
 python -m analyzer analyze
 python -m analyzer stats
 ```
 
 > **Important:** Telegram Desktop exports store sender ids in a *prefixed*
-> form, e.g. `user938613594` — not the bare numeric id you'd see in Telegram
+> form, e.g. `user100000001` — not the bare numeric id you'd see in Telegram
 > settings. Always get the exact string from `python -m analyzer participants`
 > (or the Settings page's sender list) rather than typing it from memory. If
 > the configured ids don't match anything, `analyze` now fails with a clear
@@ -238,3 +258,7 @@ npm run build
 8. Tests + polish
 
 All phases are implemented and tested.
+
+## Built by
+
+**[Abdurashid Fattokhov](https://afa06.github.io/My_Portfolio/)**: design, backend, frontend, bot and deployment.

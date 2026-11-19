@@ -55,7 +55,7 @@ def set_participants(db: Session, me_user_id: str, me_display_name: str, other_u
 def detect_participants(db: Session, limit: int = 10) -> list[dict]:
     """Lists the actual sender ids present in the imported messages, ranked
     by message count. Telegram exports store ``from_id`` in a prefixed form
-    (e.g. ``user938613594``, not bare ``938613594``), so this is the
+    (e.g. ``user100000001``, not bare ``100000001``), so this is the
     reliable way to find the exact id string to configure — rather than
     guessing at the format.
     """

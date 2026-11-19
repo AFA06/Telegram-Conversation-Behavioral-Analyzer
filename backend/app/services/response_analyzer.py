@@ -112,7 +112,7 @@ def run_full_analysis(db: Session) -> dict:
         raise ValueError(
             "The configured 'me' and 'other' ids don't match any imported message senders "
             "(0 messages matched). Telegram exports store sender ids in a prefixed form "
-            "(e.g. 'user938613594', not bare '938613594') — check GET /api/import/participants "
+            "(e.g. 'user100000001', not bare '100000001') — check GET /api/import/participants "
             "or `python -m analyzer participants` for the exact ids found in your export. "
             f"Detected senders: {detected_str or 'none'}"
         )

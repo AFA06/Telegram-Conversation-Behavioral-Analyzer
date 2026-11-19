@@ -147,15 +147,15 @@ def test_run_full_analysis_classifies_same_role_followup_as_long_delay(configure
 
 def test_run_full_analysis_errors_clearly_when_configured_ids_match_nothing(db):
     """Regression test: a real Telegram export stores sender ids in a
-    prefixed form (e.g. 'user938613594'), not bare numeric ids. If the
+    prefixed form (e.g. 'user100000001'), not bare numeric ids. If the
     configured 'me'/'other' ids don't match any imported message, the
     previous behavior silently produced all-zero stats. It must now raise
     a clear, actionable error instead.
     """
-    set_participants(db, me_user_id="938613594", me_display_name="Me", other_user_id="6424173522", other_display_name="Jayrona")
+    set_participants(db, me_user_id="100000001", me_display_name="Me", other_user_id="2000000002", other_display_name="Bob")
     messages = [
-        make_message(1, 1, "user938613594", BASE, text="Hey"),
-        make_message(2, 2, "user6424173522", BASE + dt.timedelta(minutes=1), text="Hi"),
+        make_message(1, 1, "user100000001", BASE, text="Hey"),
+        make_message(2, 2, "user2000000002", BASE + dt.timedelta(minutes=1), text="Hi"),
     ]
     db.add_all(messages)
     db.commit()

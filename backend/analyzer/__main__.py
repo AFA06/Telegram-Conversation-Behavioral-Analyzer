@@ -11,7 +11,7 @@ Usage (run from the ``backend/`` directory, with the venv active):
 
 Tip: import first without --me-id/--other-id, run 'participants' to see the
 exact id strings Telegram used in your export (they're usually prefixed,
-e.g. 'user938613594', not bare '938613594'), then 'configure' with those.
+e.g. 'user100000001', not bare '100000001'), then 'configure' with those.
 """
 from __future__ import annotations
 
@@ -68,7 +68,7 @@ def cmd_import(args: argparse.Namespace) -> None:
                     f"\nWarning: configured me-id ({cfg.me_user_id}) matched {me_matches} messages, "
                     f"other-id ({cfg.other_user_id}) matched {other_matches} messages. "
                     "Double-check against the senders listed above — Telegram exports usually "
-                    "prefix numeric ids, e.g. 'user938613594' rather than bare '938613594'."
+                    "prefix numeric ids, e.g. 'user100000001' rather than bare '100000001'."
                 )
     finally:
         db.close()
